@@ -1,0 +1,45 @@
+# Vivado local/generated state
+.Xil/
+*.jou
+*.log
+*.str
+*.pb
+*.wdb
+*.wdf
+*.wpc
+
+# Vivado generated project directories
+*.cache/
+*.hw/
+*.ip_user_files/
+*.runs/
+*.sim/
+
+# Generated implementation/synthesis artifacts
+*.bit
+*.dcp
+*.rpt
+*.rpx
+*.vdi
+*.vds
+
+# Keep the LCD pre-synthesized module used by the top-level project.
+!lcd_module.dcp
+
+# Generated IP helper outputs. The repository keeps the XCI and ROM MIF.
+minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/doc/
+minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/hdl/
+minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/sim/
+minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/simulation/
+minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/synth/
+minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/*.veo
+minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/*.vho
+minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/*_stub.v
+minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/*_stub.vhdl
+minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/*_sim_netlist.v
+minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/*_sim_netlist.vhdl
+minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/*_ooc.xdc
+minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/*.xml
+
+# Unused historical IP left in the Vivado project folder.
+minicpu_basic/minicpu_basic.srcs/sources_1/ip/inst_ram_ip/
