@@ -61,6 +61,74 @@ D:\Vivado\Vivado\2019.2\bin\vivado.bat
 
 如果 Vivado 安装在其他位置，需要把下面命令中的路径改成自己的安装路径。
 
+## 从 GitHub 下载后的正确复现流程
+
+以下命令假设仓库位于：
+
+```text
+D:\CPU_DESIGN
+```
+
+如果组员 clone 到其他目录，需要把命令中的 `D:\CPU_DESIGN` 和 `/mnt/d/CPU_DESIGN` 替换成自己的仓库路径。
+
+从 GitHub 页面下载 ZIP 时，请先把分支切到 `tree`；如果用命令行 clone，可以直接执行：
+
+```powershell
+git clone -b tree https://github.com/FFspiky/minicpu-basic.git D:\CPU_DESIGN
+```
+
+1. 先进入仓库所在目录，确认使用的是 `tree` 分支。
+
+```powershell
+cd D:\CPU_DESIGN
+git branch
+```
+
+2. 首次配置 LA32R 工具链。每台电脑只需要做一次，已经装过可以跳过。
+
+```powershell
+wsl -d Ubuntu-24.04 -- sudo bash /mnt/d/CPU_DESIGN/scripts/setup_la32r_toolchain.sh
+```
+
+3. 生成 EXP6 功能测试程序。
+
+```powershell
+wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh
+```
+
+4. 生成参考 trace。
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\gettrace\run_gettrace_sim.tcl'
+```
+
+5. 运行当前 CPU 的 `soc_dram` trace 比对。
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\run_soc_dram_sim.tcl'
+```
+
+这一步会自动生成 Vivado 工程：
+
+```text
+D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\project\loongson.xpr
+```
+
+后续在 Vivado GUI 中调试时，打开这个 `loongson.xpr`。
+
+不要打开下面这个旧工程：
+
+```text
+D:\CPU_DESIGN\minicpu_basic\minicpu_basic.xpr
+```
+
+旧工程是原 MiniCPU 工程，里面使用 `inst_rom`。本次指导书 EXP6 trace 比对环境使用的是 `mycpu_env/soc_verify/soc_dram`，里面应该看到：
+
+```text
+inst_ram : inst_ram
+data_ram : data_ram
+```
+
 ## 首次环境配置
 
 进入管理员 PowerShell 或普通 PowerShell 后，先安装工具链：
@@ -140,6 +208,8 @@ D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\proj
 ```
 
 如果 `project/loongson.xpr` 不存在，先运行一次 `run_soc_dram_sim.tcl` 批处理脚本，它会自动调用 `create_project.tcl` 生成 Vivado 工程。
+
+如果打开后看到 `inst_rom`，说明打开错了旧的 `minicpu_basic/minicpu_basic.xpr`。正确工程中应看到 `inst_ram : inst_ram`。
 
 进入 Vivado 后：
 

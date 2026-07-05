@@ -13,6 +13,8 @@
 常用复现命令：
 
 ```powershell
+cd D:\CPU_DESIGN
+wsl -d Ubuntu-24.04 -- sudo bash /mnt/d/CPU_DESIGN/scripts/setup_la32r_toolchain.sh
 wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh
 & 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\gettrace\run_gettrace_sim.tcl'
 & 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\run_soc_dram_sim.tcl'
@@ -25,6 +27,8 @@ D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\proj
 ```
 
 如果 `project/loongson.xpr` 不存在，先运行一次 `run_soc_dram_sim.tcl` 批处理脚本，它会自动调用 `create_project.tcl` 生成 Vivado 工程。
+
+不要打开 `D:\CPU_DESIGN\minicpu_basic\minicpu_basic.xpr`。那个是旧 MiniCPU 工程，里面使用 `inst_rom`；当前 EXP6 trace 比对工程应看到 `inst_ram : inst_ram` 和 `data_ram : data_ram`。
 
 >**NOTE:** 
 >  1. minicpu_env/miniCPU/目录下的代码功能不全，是有意为之，无需提issue修正。
