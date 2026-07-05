@@ -1,6 +1,31 @@
 # LoongArch CPU 设计实验
 对应实验手册请参阅[《LoongArch CPU设计实验》](https://bookdown.org/loongson/_book3/)。
 
+## 当前仓库状态
+
+本仓库已经在 `mycpu_env/soc_verify/soc_dram` 中接入当前单周期 CPU，并跑通 EXP6 的 trace 比对流程。
+
+- 当前 CPU RTL 位于 `mycpu_env/myCPU`。
+- 参考 trace 由 `mycpu_env/gettrace` 生成。
+- 当前 CPU 比对环境位于 `mycpu_env/soc_verify/soc_dram`。
+- 当前版本已通过 EXP6 的 20 个功能测试点，结果为 `----PASS!!!`。
+
+常用复现命令：
+
+```powershell
+wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\gettrace\run_gettrace_sim.tcl'
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\run_soc_dram_sim.tcl'
+```
+
+Vivado GUI 中打开当前 CPU 比对工程：
+
+```text
+D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\project\loongson.xpr
+```
+
+如果 `project/loongson.xpr` 不存在，先运行一次 `run_soc_dram_sim.tcl` 批处理脚本，它会自动调用 `create_project.tcl` 生成 Vivado 工程。
+
 >**NOTE:** 
 >  1. minicpu_env/miniCPU/目录下的代码功能不全，是有意为之，无需提issue修正。
 >  2. mycpu_env/myCPU/目录下的代码有功能错误，亦是有意为之，无需提issue修正。

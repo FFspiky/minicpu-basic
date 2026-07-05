@@ -1,152 +1,210 @@
 # MiniCPU Basic
 
-这是一个基于 Vivado 2019.2 的单周期 MiniCPU 工程。当前版本已按仓库中的单周期数据通路图和修正后的控制信号取值表完成 RTL 重构，并通过 Vivado 行为仿真验证。
+本仓库是基于 Vivado 2019.2 的单周期 CPU 实验工程，并已经接入指导书中的 `mycpu_env/soc_dram` 功能测试与 trace 比对框架。
 
-## 工程内容
+当前已完成并验证的重点：
+
+- 在 `cdp_ede_local-master/mycpu_env/myCPU` 中接入当前单周期 CPU。
+- 搭建 WSL2 + Ubuntu 24.04 + LA32R 交叉编译环境。
+- 生成 EXP6 功能测试程序，也就是 `func` 中的 `n1` 到 `n20`。
+- 生成参考 CPU 的 `golden_trace.txt`。
+- 使用 `soc_dram` testbench 对当前 CPU 的写回 trace 做自动比对。
+- 当前版本已通过 EXP6 的 20 个功能测试点，仿真结果为 `----PASS!!!`。
+
+## 目录说明
 
 ```text
 .
-├── init.coe                         # 默认 ROM 示例程序
-├── init_20inst_verify.coe           # 20 条指令专用验证程序
-├── 控制信号取值表 .xlsx             # 已修正的控制信号表
-├── 单周期数据通路图.drawio          # 单周期 CPU 数据通路图
-├── lcd_module.dcp                   # LCD 预综合模块
-├── run_20inst_sim.tcl               # Vivado 行为仿真脚本
-└── minicpu_basic/
-    ├── minicpu_basic.xpr            # Vivado 工程文件
-    └── minicpu_basic.srcs/
-        ├── constrs_1/new/1.xdc
-        ├── sim_1/new/tb_mini_cpu.v
-        └── sources_1/
-            ├── new/                 # 手写 CPU RTL
-            └── ip/                  # Vivado ROM/RAM IP 配置
+├── cdp_ede_local-master/
+│   └── mycpu_env/
+│       ├── func/                         # 功能测试程序源码与生成文件
+│       ├── gettrace/                     # 参考 CPU trace 生成工程
+│       ├── myCPU/                        # 当前接入 soc_dram 的 CPU RTL
+│       └── soc_verify/soc_dram/          # 当前使用的 trace 比对仿真环境
+├── minicpu_basic/                        # 原 MiniCPU Vivado 工程
+├── scripts/                              # WSL、工具链、功能测试构建脚本
+└── README.md
 ```
 
-Vivado 生成的缓存、仿真输出、综合实现输出和日志文件不纳入仓库，可由 Vivado 重新生成。
+## 当前 CPU 入口
 
-## 当前版本要点
-
-- 单周期、非流水线、哈佛结构 CPU。
-- PC 复位地址为 `32'h1c000000`，每次 `cpu_en` 有效时执行一条指令。
-- 控制器已按修正后的控制信号表输出 `alu_op`、`EXTOP`、寄存器堆选择、写回选择、访存控制和分支跳转控制。
-- ALU 使用控制表中的 4 位编码：
-  `ADD=0000`、`SUB=0001`、`SLT=0010`、`SLTU=0011`、`SLL=0100`、`SRL=0101`、`SRA=0110`、`AND=0111`、`NOR=1000`、`OR=1001`、`XOR=1010`。
-- 立即数扩展由 `EXTOP` 统一控制：
-  `001` 为 12 位符号扩展，`010` 为 5 位零扩展，`011` 为 16 位分支偏移扩展，`100` 为 26 位跳转偏移扩展，`101` 为 `lu12i.w` 高位拼接。
-- `beq/bne` 由寄存器比较动态产生 `br_taken`，`b/bl/jirl` 为无条件跳转。
-
-## 顶层结构
+主要 RTL 位于：
 
 ```text
-PC -> inst_rom -> inst_decode -> cpu_control
-                         |           |
-                         v           v
-                    regfile -----> ALU -----> data_ram
-                       |            |             |
-                       |            v             v
-                       +------ branch_unit     writeback
+cdp_ede_local-master/mycpu_env/myCPU/
 ```
 
-## 主要 RTL 模块
+其中 `mycpu_top.v` 是接入指导书环境的顶层，已经适配 `soc_lite_top` 需要的 SRAM 接口和调试写回接口：
 
-- `mini_cpu.v`：CPU 核心顶层，连接取指、译码、控制、寄存器堆、ALU、数据 RAM、写回、分支和调试模块。
-- `cpu_control.v`：按修正后的控制信号表生成数据通路选择信号。
-- `inst_decode.v`：解析 LoongArch 风格指令字段并识别当前支持的指令。
-- `imm_extend.v`：根据 `EXTOP` 输出统一扩展立即数。
-- `alu.v`：完成加减、比较、逻辑和移位运算。
-- `branch_unit.v`：根据 `br_en/br_op/sel_nextpc/jirl_sel` 生成 `next_pc`。
-- `regfile.v`：32 个 32 位通用寄存器，`r0` 恒为 0。
-- `store_debug.v`：记录 store 次数、最后一次 store 地址和数据，供仿真/LCD 查看。
+```verilog
+debug_wb_pc
+debug_wb_rf_we
+debug_wb_rf_wnum
+debug_wb_rf_wdata
+```
 
-## 支持指令
+trace 比对框架正是通过这四个信号判断当前 CPU 和参考 CPU 是否一致。
 
-| 指令 | 功能 |
-| --- | --- |
-| `add.w rd, rj, rk` | `rd = rj + rk` |
-| `addi.w rd, rj, imm12` | `rd = rj + sign_extend(imm12)` |
-| `sub.w rd, rj, rk` | `rd = rj - rk` |
-| `slt rd, rj, rk` | 有符号小于置 1 |
-| `sltu rd, rj, rk` | 无符号小于置 1 |
-| `slli.w rd, rj, ui5` | 逻辑左移 |
-| `srli.w rd, rj, ui5` | 逻辑右移 |
-| `srai.w rd, rj, ui5` | 算术右移 |
-| `and rd, rj, rk` | 按位与 |
-| `or rd, rj, rk` | 按位或 |
-| `nor rd, rj, rk` | 按位或非 |
-| `xor rd, rj, rk` | 按位异或 |
-| `lu12i.w rd, si20` | `rd = si20 << 12` |
-| `ld.w rd, rj, imm12` | `rd = data_ram[(rj + sign_extend(imm12))[17:2]]` |
-| `st.w rd, rj, imm12` | `data_ram[(rj + sign_extend(imm12))[17:2]] = rd` |
-| `beq rj, rd, offs16` | 相等时跳转 |
-| `bne rj, rd, offs16` | 不相等时跳转 |
-| `b offs26` | 无条件跳转 |
-| `bl offs26` | `r1 = PC + 4` 后跳转 |
-| `jirl rd, rj, offs16` | `rd = PC + 4`，跳转到 `rj + sign_extend(offs16 << 2)` |
+## 环境要求
 
-## ROM 程序
+- Windows 11
+- WSL2
+- Ubuntu 24.04
+- Vivado 2019.2
+- LA32R 交叉编译工具链
 
-### `init.coe`
-
-默认示例程序，覆盖多类指令并保留原工程回归用途。Vivado 仿真 80 步后的关键结果：
+本机已经验证的 Vivado 路径是：
 
 ```text
-STCNT = 2
-LSTA  = 0001
-LSTD  = 00000014
+D:\Vivado\Vivado\2019.2\bin\vivado.bat
 ```
 
-### `init_20inst_verify.coe`
+如果 Vivado 安装在其他位置，需要把下面命令中的路径改成自己的安装路径。
 
-20 条指令专用验证程序，共 66 条指令。该程序把每类指令的结果写入数据 RAM，便于逐项核对。预期最终结果：
+## 首次环境配置
 
-```text
-STCNT = 23
-LSTA  = 0016
-LSTD  = 00000014
-```
-
-关键 store 结果：
-
-| 地址 | 数据 | 验证项 |
-| --- | --- | --- |
-| `0000` | `0000000d` | `add.w` |
-| `0001` | `00000007` | `sub.w` |
-| `0002` | `00000002` | `and` |
-| `0003` | `0000000b` | `or` |
-| `0004` | `00000009` | `xor` |
-| `0005` | `fffffff4` | `nor` |
-| `0006` | `00000001` | `slt` |
-| `0007` | `00000000` | `sltu` |
-| `0008` | `0000000c` | `slli.w` |
-| `0009` | `7fffffff` | `srli.w` |
-| `000a` | `ffffffff` | `srai.w` |
-| `000b` | `12345000` | `lu12i.w` |
-| `000c` | `0000000a` | `addi.w/st.w` |
-| `000d` | `0000000a` | `ld.w` |
-| `000e`-`0012` | `1` 到 `5` | `beq/bne/b` 分支标记 |
-| `0013` | `1c0000d8` | `bl` link |
-| `0014` | `00000006` | 子程序返回结果 |
-| `0015` | `1c0000ec` | `jirl` link |
-| `0016` | `00000014` | 最终通过标记 |
-
-## Vivado 仿真
-
-使用 Vivado 2019.2：
+进入管理员 PowerShell 或普通 PowerShell 后，先安装工具链：
 
 ```powershell
-D:\Vivado\Vivado\2019.2\bin\vivado.bat -mode batch -source run_20inst_sim.tcl
+wsl -d Ubuntu-24.04 -- sudo bash /mnt/d/CPU_DESIGN/scripts/setup_la32r_toolchain.sh
 ```
 
-工程默认 ROM 初始化仍使用 `init.coe` / `inst_rom.mif`。若要验证 `init_20inst_verify.coe`，可在 Vivado 中把 `inst_rom` 的 coefficient file 改为 `init_20inst_verify.coe` 并重新生成输出，或将该 COE 转成二进制行格式后临时替换 `inst_rom.mif` 再运行仿真。
+该脚本会把 LA32R 工具链安装到 WSL 中的：
 
-本版本已完成两轮 Vivado 行为仿真：
+```text
+/opt/loongarch32r
+```
 
-- 默认 `init.coe` 回归通过：`STCNT=2`，`LSTA=0001`，`LSTD=00000014`。
-- `init_20inst_verify.coe` 通过：`STCNT=23`，`LSTA=0016`，`LSTD=00000014`。
+## 生成 EXP6 功能测试程序
 
-## 打开工程
+```powershell
+wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh
+```
 
-1. 使用 Vivado 2019.2 打开 `minicpu_basic/minicpu_basic.xpr`。
-2. 确认 `lcd_module.dcp` 位于仓库根目录。
-3. 若 IP 状态提示需要刷新，重新生成 `inst_rom` 和 `data_ram` 的输出产物。
-4. 上板顶层为 `mini_cpu_display`，仿真顶层为 `tb_mini_cpu`。
+生成结果位于：
+
+```text
+cdp_ede_local-master/mycpu_env/func/obj/
+```
+
+关键文件：
+
+```text
+inst_ram.coe
+inst_ram.mif
+data_ram.coe
+data_ram.mif
+```
+
+## 生成参考 trace
+
+参考 trace 由 `gettrace` 工程生成：
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\gettrace\run_gettrace_sim.tcl'
+```
+
+生成文件：
+
+```text
+cdp_ede_local-master/mycpu_env/gettrace/golden_trace.txt
+```
+
+## 运行当前 CPU 的 trace 比对
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\run_soc_dram_sim.tcl'
+```
+
+通过时会看到：
+
+```text
+----PASS!!!
+```
+
+如果失败，testbench 会打印第一处不一致：
+
+```text
+reference: PC = ..., wb_rf_wnum = ..., wb_rf_wdata = ...
+mycpu    : PC = ..., wb_rf_wnum = ..., wb_rf_wdata = ...
+```
+
+调试时优先看第一处 mismatch。
+
+## 在 Vivado GUI 中调试
+
+打开当前 CPU 的比对工程：
+
+```text
+D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\project\loongson.xpr
+```
+
+如果 `project/loongson.xpr` 不存在，先运行一次 `run_soc_dram_sim.tcl` 批处理脚本，它会自动调用 `create_project.tcl` 生成 Vivado 工程。
+
+进入 Vivado 后：
+
+1. 点击 `Run Simulation`。
+2. 选择 `Run Behavioral Simulation`。
+3. 在 Tcl Console 输入：
+
+```tcl
+run all
+```
+
+常用波形信号：
+
+```tcl
+add_wave /tb_top/debug_wb_pc
+add_wave /tb_top/ref_wb_pc
+add_wave /tb_top/debug_wb_rf_wnum
+add_wave /tb_top/ref_wb_rf_wnum
+add_wave /tb_top/debug_wb_rf_wdata_v
+add_wave /tb_top/ref_wb_rf_wdata_v
+add_wave /tb_top/debug_wb_err
+add_wave /tb_top/soc_lite/cpu/*
+```
+
+判断方向：
+
+- `PC` 不同：优先查 PC 更新、分支、跳转、取指。
+- `PC` 相同但写回寄存器号不同：优先查译码和写使能。
+- `PC`、寄存器号相同但写回数据不同：优先查 ALU、立即数、访存读数。
+- 只差一个周期：优先查 `debug_wb_*` 输出时序。
+
+## 当前支持的 EXP6 指令
+
+当前版本面向 EXP6 的 20 条单周期 CPU 指令：
+
+```text
+lu12i.w
+add.w
+addi.w
+sub.w
+slt
+sltu
+and
+or
+xor
+nor
+slli.w
+srli.w
+srai.w
+ld.w
+st.w
+beq
+bne
+bl
+jirl
+b
+```
+
+## 已提交的可复现实验文件
+
+为方便复现实验，仓库中保留了：
+
+- EXP6 生成后的 `.coe/.mif` 初始化文件。
+- `golden_trace.txt`。
+- WSL/工具链/构建脚本。
+- Vivado 批处理仿真脚本。
+
+Vivado 自动生成的 project/cache/sim/IP helper/log 文件已通过 `.gitignore` 排除，需要时可以由 Vivado 重新生成。
