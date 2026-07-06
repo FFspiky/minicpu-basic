@@ -1,7 +1,11 @@
 `timescale 1ns / 1ps
 `default_nettype none
 
-module soc_lite_lcd_top(
+module soc_lite_lcd_top #(
+    parameter SIMULATION  = 1'b0,
+    parameter SINGLE_STEP = 1'b1
+)
+(
     input  wire        resetn,
     input  wire        clk,
 
@@ -29,18 +33,27 @@ module soc_lite_lcd_top(
     output wire        ct_rstn
 );
 
-    wire clk_ibuf;
     wire board_clk;
 
-    IBUF u_board_clk_ibuf(
-        .I (clk),
-        .O (clk_ibuf)
-    );
+    generate if (SIMULATION)
+    begin: sim_clock
+        assign board_clk = clk;
+    end
+    else
+    begin: board_clock
+        wire clk_ibuf;
 
-    BUFG u_board_clk_bufg(
-        .I (clk_ibuf),
-        .O (board_clk)
-    );
+        IBUF u_board_clk_ibuf(
+            .I (clk),
+            .O (clk_ibuf)
+        );
+
+        BUFG u_board_clk_bufg(
+            .I (clk_ibuf),
+            .O (board_clk)
+        );
+    end
+    endgenerate
 
     wire [31:0] debug_wb_pc;
     wire [3 :0] debug_wb_rf_we;
@@ -51,8 +64,8 @@ module soc_lite_lcd_top(
     wire [31:0] debug_step_count;
 
     soc_lite_top #(
-        .SIMULATION  (1'b0),
-        .SINGLE_STEP (1'b1)
+        .SIMULATION  (SIMULATION),
+        .SINGLE_STEP (SINGLE_STEP)
     ) u_soc (
         .resetn              (resetn),
         .clk                 (board_clk),

@@ -338,7 +338,17 @@ u_confreg : confreg
 
 如果看到 `rom` 或 `inst_rom`，说明打开了旧的 `minicpu_basic` 工程，不是当前上板工程。
 
-### 3. 生成 bitstream
+### 3. 可选：检查 LCD 上板工程能否行为仿真展开
+
+`project_lcd` 的行为仿真只用于检查上板顶层、LCD 连接和 IP 仿真模型是否能正常展开，不等价于标准 trace 比对。LCD 控制器真实实现来自 `lcd_module_cell.dcp`，行为仿真时脚本会自动使用 `run_vivado/sim/lcd_module_sim_stub.v` 作为 LCD 空壳，避免 XSim 因 DCP 网表无法展开而报 `[USF-XSim-62] elaborate failed`。
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\run_soc_dram_lcd_sim.tcl'
+```
+
+真正验证 CPU 指令功能仍然使用本文后面的 `run_soc_dram_sim.tcl` trace 比对流程。
+
+### 4. 生成 bitstream
 
 可以在 Vivado GUI 中点击 `Generate Bitstream`，也可以用命令一键生成：
 
@@ -354,7 +364,7 @@ u_confreg : confreg
 D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\project_lcd\loongson_lcd.runs\impl_1\soc_lite_lcd_top.bit
 ```
 
-### 4. FPGA 实机操作
+### 5. FPGA 实机操作
 
 - 时钟仍使用 `AC19`
 - 复位仍使用 `Y3`
@@ -376,7 +386,7 @@ SW     当前拨码状态
 CPUE   当前 cpu_en 脉冲
 ```
 
-### 5. 回归检查
+### 6. 回归检查
 
 上板单步改动不应该破坏原 trace 流程。修改 RTL 后至少重新运行：
 

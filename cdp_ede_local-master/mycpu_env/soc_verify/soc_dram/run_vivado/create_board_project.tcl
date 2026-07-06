@@ -26,6 +26,10 @@ add_files -scan_for_includes $rtl_files
 set ip_xci_files [glob -nocomplain ../rtl/xilinx_ip/*/*.xci]
 add_files -quiet $ip_xci_files
 add_files -scan_for_includes ../../../myCPU
+set board_sim_files [glob -nocomplain ./sim/*.v]
+if {[llength $board_sim_files] > 0} {
+    add_files -fileset sim_1 -quiet $board_sim_files
+}
 
 foreach ip_xci $ip_xci_files {
     set ip_file [get_files [file normalize $ip_xci]]
@@ -47,4 +51,6 @@ if {![file exists $lcd_dcp]} {
 add_files -quiet $lcd_dcp
 
 set_property top soc_lite_lcd_top [current_fileset]
+set_property top tb_lcd_top [get_filesets sim_1]
 update_compile_order -fileset sources_1
+update_compile_order -fileset sim_1
