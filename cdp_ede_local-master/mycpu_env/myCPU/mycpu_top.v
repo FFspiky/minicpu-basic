@@ -3,6 +3,7 @@
 module mycpu_top(
     input  wire        clk,
     input  wire        resetn,
+    input  wire        cpu_en,
 
     output wire        inst_sram_we,
     output wire [31:0] inst_sram_addr,
@@ -37,7 +38,7 @@ module mycpu_top(
             valid <= 1'b0;
             pc    <= RESET_PC;
         end
-        else begin
+        else if (cpu_en) begin
             valid <= 1'b1;
             pc    <= next_pc;
         end
@@ -186,7 +187,7 @@ module mycpu_top(
     assign rf_raddr1   = rj;
     assign rf_raddr2   = sel_rf_ra2 ? rk : rd;
     assign rf_waddr    = sel_rf_dst ? rd : 5'd1;
-    assign rf_we_valid = rf_we & valid;
+    assign rf_we_valid = cpu_en & rf_we & valid;
 
     regfile u_regfile(
         .clk    (clk),
@@ -214,7 +215,7 @@ module mycpu_top(
         .alu_result (alu_result)
     );
 
-    assign data_sram_we    = valid & data_ram_we & data_ram_ce;
+    assign data_sram_we    = cpu_en & valid & data_ram_we & data_ram_ce;
     assign data_sram_addr  = alu_result;
     assign data_sram_wdata = rf_rdata2;
 
@@ -244,7 +245,7 @@ module mycpu_top(
             debug_wb_rf_wnum  <= 5'b0;
             debug_wb_rf_wdata <= 32'b0;
         end
-        else begin
+        else if (cpu_en) begin
             debug_wb_pc       <= pc;
             debug_wb_rf_we    <= {4{rf_we_valid}};
             debug_wb_rf_wnum  <= rf_we_valid ? rf_waddr : 5'b0;

@@ -123,5 +123,14 @@ set_property IOSTANDARD LVCMOS33 [get_ports {btn_step[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {num_data[*]}]
 
 
-set_false_path -from [get_clocks -of_objects [get_pins pll.clk_pll/inst/plle2_adv_inst/CLKOUT1]] -to [get_clocks -of_objects [get_pins pll.clk_pll/inst/plle2_adv_inst/CLKOUT0]]
-set_false_path -from [get_clocks -of_objects [get_pins pll.clk_pll/inst/plle2_adv_inst/CLKOUT0]] -to [get_clocks -of_objects [get_pins pll.clk_pll/inst/plle2_adv_inst/CLKOUT1]]
+set pll_clkout0_pins [concat \
+    [get_pins -quiet pll.clk_pll/inst/plle2_adv_inst/CLKOUT0] \
+    [get_pins -quiet u_soc/pll.clk_pll/inst/plle2_adv_inst/CLKOUT0]]
+set pll_clkout1_pins [concat \
+    [get_pins -quiet pll.clk_pll/inst/plle2_adv_inst/CLKOUT1] \
+    [get_pins -quiet u_soc/pll.clk_pll/inst/plle2_adv_inst/CLKOUT1]]
+
+if {[llength $pll_clkout0_pins] > 0 && [llength $pll_clkout1_pins] > 0} {
+    set_false_path -from [get_clocks -of_objects $pll_clkout1_pins] -to [get_clocks -of_objects $pll_clkout0_pins]
+    set_false_path -from [get_clocks -of_objects $pll_clkout0_pins] -to [get_clocks -of_objects $pll_clkout1_pins]
+}

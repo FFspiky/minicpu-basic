@@ -278,3 +278,114 @@ b
 - Vivado 批处理仿真脚本。
 
 Vivado 自动生成的 project/cache/sim/IP helper/log 文件已通过 `.gitignore` 排除，需要时可以由 Vivado 重新生成。
+## 上板 LCD 单步验证流程
+
+这一版新增了一个独立的上板入口，不替换原来的 trace 仿真入口：
+
+- trace 仿真仍使用 `cdp_ede_local-master/mycpu_env/soc_verify/soc_dram/run_vivado/run_soc_dram_sim.tcl`
+- 上板 LCD 单步工程使用 `cdp_ede_local-master/mycpu_env/soc_verify/soc_dram/run_vivado/create_board_project.tcl`
+- 一键综合、实现、生成 bitstream 使用 `cdp_ede_local-master/mycpu_env/soc_verify/soc_dram/run_vivado/run_soc_dram_lcd_impl.tcl`
+
+上板顶层是：
+
+```text
+cdp_ede_local-master/mycpu_env/soc_verify/soc_dram/rtl/soc_lite_lcd_top.v
+```
+
+它实例化 `soc_lite_top #(.SIMULATION(1'b0), .SINGLE_STEP(1'b1))`，并接入仓库根目录下的：
+
+```text
+D:\CPU_DESIGN\lcd_module.dcp
+```
+
+### 1. 生成功能测试程序
+
+在生成 Vivado 上板工程前，先确保 `inst_ram.coe` 和 `data_ram.coe` 已经生成：
+
+```powershell
+cd D:\CPU_DESIGN
+wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh
+```
+
+### 2. 生成上板 Vivado 工程
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\create_board_project.tcl'
+```
+
+生成后的工程路径是：
+
+```text
+D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\project_lcd\loongson_lcd.xpr
+```
+
+在 Vivado 里打开这个工程时，Design Sources 顶层应该是：
+
+```text
+soc_lite_lcd_top
+```
+
+其内部仍应看到：
+
+```text
+inst_ram : inst_ram
+data_ram : data_ram
+bridge_1x2 : bridge_1x2
+u_confreg : confreg
+```
+
+如果看到 `rom` 或 `inst_rom`，说明打开了旧的 `minicpu_basic` 工程，不是当前上板工程。
+
+### 3. 生成 bitstream
+
+可以在 Vivado GUI 中点击 `Generate Bitstream`，也可以用命令一键生成：
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\run_soc_dram_lcd_impl.tcl'
+```
+
+注意：当前上板工程沿用 `soc_dram` 的 `inst_ram` distributed memory IP，第一次综合可能会在 `inst_ram_synth_1` 阶段运行较久，并占用较多内存。只要 Vivado 进程仍在占用 CPU，一般不是打开了旧 `rom/inst_rom` 工程。
+
+生成成功后，bitstream 通常位于：
+
+```text
+D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\project_lcd\loongson_lcd.runs\impl_1\soc_lite_lcd_top.bit
+```
+
+### 4. FPGA 实机操作
+
+- 时钟仍使用 `AC19`
+- 复位仍使用 `Y3`
+- `switch[7]` 绑定 `AC21`，作为单步执行拨码
+- 每次将 `switch[7]` 从 `0` 拨到 `1`，CPU 执行一条指令
+- 保持在 `1` 不会连续执行；需要拨回 `0` 后再拨到 `1` 才会执行下一步
+
+LCD 页面显示：
+
+```text
+WBPC   最后一次执行/写回 PC
+INST   最近一次执行的指令
+WNUM   写回寄存器号
+WDAT   写回数据
+WE     写回使能
+STEP   单步次数
+NUM    confreg.num_data
+SW     当前拨码状态
+CPUE   当前 cpu_en 脉冲
+```
+
+### 5. 回归检查
+
+上板单步改动不应该破坏原 trace 流程。修改 RTL 后至少重新运行：
+
+```powershell
+wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\gettrace\run_gettrace_sim.tcl'
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\run_soc_dram_sim.tcl'
+```
+
+通过标准是仿真输出仍出现：
+
+```text
+----PASS!!!
+```
