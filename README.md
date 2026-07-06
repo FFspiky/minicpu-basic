@@ -295,8 +295,10 @@ cdp_ede_local-master/mycpu_env/soc_verify/soc_dram/rtl/soc_lite_lcd_top.v
 它实例化 `soc_lite_top #(.SIMULATION(1'b0), .SINGLE_STEP(1'b1))`，并接入仓库根目录下的：
 
 ```text
-D:\CPU_DESIGN\lcd_module.dcp
+D:\CPU_DESIGN\lcd_module_cell.dcp
 ```
+
+`lcd_module_cell.dcp` 是从原始 `lcd_module.dcp` 派生的 SoC 子模块版本：LCD/触摸屏真实引脚仍保留 I/O buffer，`clk/resetn/display_* / input_*` 这些逻辑接口去掉 I/O buffer，避免和 SoC 顶层时钟、内部调试信号产生冲突。
 
 ### 1. 生成功能测试程序
 
@@ -344,7 +346,7 @@ u_confreg : confreg
 & 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\run_soc_dram_lcd_impl.tcl'
 ```
 
-注意：当前上板工程沿用 `soc_dram` 的 `inst_ram` distributed memory IP，第一次综合可能会在 `inst_ram_synth_1` 阶段运行较久，并占用较多内存。只要 Vivado 进程仍在占用 CPU，一般不是打开了旧 `rom/inst_rom` 工程。
+注意：当前上板工程沿用 `soc_dram` 的 `inst_ram` distributed memory IP，综合仍可能较久并占用较多内存。上板脚本已关闭 IP 的 OOC checkpoint，`inst_ram` 会并入顶层 `synth_1`，不再单独运行 `inst_ram_synth_1`。
 
 生成成功后，bitstream 通常位于：
 

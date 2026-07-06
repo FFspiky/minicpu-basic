@@ -26,6 +26,7 @@ xsim.dir/
 
 # Keep the LCD pre-synthesized module used by the top-level project.
 !lcd_module.dcp
+!lcd_module_cell.dcp
 
 # Generated IP helper outputs. The repository keeps the XCI and ROM MIF.
 minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/doc/

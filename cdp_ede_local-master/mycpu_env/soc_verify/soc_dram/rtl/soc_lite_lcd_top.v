@@ -29,6 +29,19 @@ module soc_lite_lcd_top(
     output wire        ct_rstn
 );
 
+    wire clk_ibuf;
+    wire board_clk;
+
+    IBUF u_board_clk_ibuf(
+        .I (clk),
+        .O (clk_ibuf)
+    );
+
+    BUFG u_board_clk_bufg(
+        .I (clk_ibuf),
+        .O (board_clk)
+    );
+
     wire [31:0] debug_wb_pc;
     wire [3 :0] debug_wb_rf_we;
     wire [4 :0] debug_wb_rf_wnum;
@@ -42,7 +55,7 @@ module soc_lite_lcd_top(
         .SINGLE_STEP (1'b1)
     ) u_soc (
         .resetn              (resetn),
-        .clk                 (clk),
+        .clk                 (board_clk),
 
         .led                 (led),
         .led_rg0             (led_rg0),
@@ -73,7 +86,7 @@ module soc_lite_lcd_top(
     wire [31:0] input_value;
 
     lcd_module u_lcd_module(
-        .clk            (clk),
+        .clk            (board_clk),
         .resetn         (resetn),
 
         .display_valid  (display_valid),
