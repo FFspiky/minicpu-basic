@@ -283,8 +283,9 @@ Vivado 自动生成的 project/cache/sim/IP helper/log 文件已通过 `.gitigno
 这一版新增了一个独立的上板入口，不替换原来的 trace 仿真入口：
 
 - trace 仿真仍使用 `cdp_ede_local-master/mycpu_env/soc_verify/soc_dram/run_vivado/run_soc_dram_sim.tcl`
-- 上板 LCD 单步工程使用 `cdp_ede_local-master/mycpu_env/soc_verify/soc_dram/run_vivado/create_board_project.tcl`
-- 一键综合、实现、生成 bitstream 使用 `cdp_ede_local-master/mycpu_env/soc_verify/soc_dram/run_vivado/run_soc_dram_lcd_impl.tcl`
+- 上板 LCD 调试工程使用 `cdp_ede_local-master/mycpu_env/soc_verify/soc_dram/run_vivado/create_board_project.tcl`
+- 日常快速综合、实现、生成 bitstream 使用 `cdp_ede_local-master/mycpu_env/soc_verify/soc_dram/run_vivado/run_soc_dram_lcd_impl.tcl`
+- 干净全量重建 bitstream 使用 `cdp_ede_local-master/mycpu_env/soc_verify/soc_dram/run_vivado/run_soc_dram_lcd_clean_impl.tcl`
 
 上板顶层是：
 
@@ -295,10 +296,10 @@ cdp_ede_local-master/mycpu_env/soc_verify/soc_dram/rtl/soc_lite_lcd_top.v
 它实例化 `soc_lite_top #(.SIMULATION(1'b0), .SINGLE_STEP(1'b1))`，并接入仓库根目录下的：
 
 ```text
-D:\CPU_DESIGN\lcd_module_cell.dcp
+lcd_module_cell.dcp
 ```
 
-`lcd_module_cell.dcp` 是从原始 `lcd_module.dcp` 派生的 SoC 子模块版本：LCD/触摸屏真实引脚仍保留 I/O buffer，`clk/resetn/display_* / input_*` 这些逻辑接口去掉 I/O buffer，避免和 SoC 顶层时钟、内部调试信号产生冲突。
+`lcd_module_cell.dcp` 是从原始 `lcd_module.dcp` 派生的 SoC 子模块版本。脚本会从仓库根目录自动查找它，不要求仓库必须放在 `D:\CPU_DESIGN`；LCD/触摸屏真实引脚仍保留 I/O buffer，`clk/resetn/display_* / input_*` 这些逻辑接口去掉 I/O buffer，避免和 SoC 顶层时钟、内部调试信号产生冲突。
 
 ### 1. 生成功能测试程序
 
@@ -350,13 +351,19 @@ u_confreg : confreg
 
 ### 4. 生成 bitstream
 
-可以在 Vivado GUI 中点击 `Generate Bitstream`，也可以用命令一键生成：
+可以在 Vivado GUI 中点击 `Generate Bitstream`，也可以用命令快速生成。快速脚本会复用已有 `project_lcd` 和 IP 生成物，适合日常小改后重新出 bitstream：
 
 ```powershell
 & 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\run_soc_dram_lcd_impl.tcl'
 ```
 
-注意：当前上板工程沿用 `soc_dram` 的 `inst_ram` distributed memory IP，综合仍可能较久并占用较多内存。上板脚本已关闭 IP 的 OOC checkpoint，`inst_ram` 会并入顶层 `synth_1`，不再单独运行 `inst_ram_synth_1`。
+如果怀疑 Vivado 工程缓存或 IP 生成物不干净，使用全量重建：
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\run_soc_dram_lcd_clean_impl.tcl'
+```
+
+注意：当前上板工程沿用 `soc_dram` 的 `inst_ram` distributed memory IP，首次综合仍可能较久并占用较多内存。上板脚本已关闭 IP 的 OOC checkpoint，`inst_ram` 会并入顶层 `synth_1`，不再单独运行 `inst_ram_synth_1`。
 
 生成成功后，bitstream 通常位于：
 
@@ -368,22 +375,24 @@ D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\proj
 
 - 时钟仍使用 `AC19`
 - 复位仍使用 `Y3`
-- `switch[7]` 绑定 `AC21`，作为单步执行拨码
-- 每次将 `switch[7]` 从 `0` 拨到 `1`，CPU 执行一条指令
-- 保持在 `1` 不会连续执行；需要拨回 `0` 后再拨到 `1` 才会执行下一步
+- `switch[7]` 绑定 `AC21`，作为模式选择：`0=STEP`，`1=RUN`
+- `btn_step[0]` 绑定 `Y5`，STEP 模式下按一下执行一条指令
+- `btn_step[1]` 绑定 `V6`，RUN 模式下按一下开始连续运行
+- RUN 模式运行到 `END_PC=1c000100` 后自动停住最终结果，直到复位
 
 LCD 页面显示：
 
 ```text
 WBPC   最后一次执行/写回 PC
 INST   最近一次执行的指令
-WNUM   写回寄存器号
-WDAT   写回数据
-WE     写回使能
+Rxx    最近一次真正写入的寄存器及其值
+WRPC   最近一次真正写回发生的 PC
 STEP   单步次数
 NUM    confreg.num_data
+MODE   当前模式，0=STEP，1=RUN
+RUN    RUN 是否已经启动
+DONE   RUN 是否已经停在最终结果
 SW     当前拨码状态
-CPUE   当前 cpu_en 脉冲
 ```
 
 ### 6. 回归检查

@@ -62,6 +62,13 @@ module soc_lite_lcd_top #(
     wire [31:0] debug_inst;
     wire        debug_cpu_en;
     wire [31:0] debug_step_count;
+    wire        debug_last_wb_valid;
+    wire [31:0] debug_last_wb_pc;
+    wire [4 :0] debug_last_wb_wnum;
+    wire [31:0] debug_last_wb_wdata;
+    wire        debug_mode_run;
+    wire        debug_run_active;
+    wire        debug_run_done;
 
     soc_lite_top #(
         .SIMULATION  (SIMULATION),
@@ -87,7 +94,14 @@ module soc_lite_lcd_top #(
         .debug_wb_rf_wdata   (debug_wb_rf_wdata),
         .debug_inst          (debug_inst),
         .debug_cpu_en        (debug_cpu_en),
-        .debug_step_count    (debug_step_count)
+        .debug_step_count    (debug_step_count),
+        .debug_last_wb_valid (debug_last_wb_valid),
+        .debug_last_wb_pc    (debug_last_wb_pc),
+        .debug_last_wb_wnum  (debug_last_wb_wnum),
+        .debug_last_wb_wdata (debug_last_wb_wdata),
+        .debug_mode_run      (debug_mode_run),
+        .debug_run_active    (debug_run_active),
+        .debug_run_done      (debug_run_done)
     );
 
     reg         display_valid;
@@ -124,6 +138,18 @@ module soc_lite_lcd_top #(
         .ct_rstn        (ct_rstn)
     );
 
+    wire [3:0] last_wb_ones_value = (debug_last_wb_wnum >= 5'd30) ? (debug_last_wb_wnum - 5'd30) :
+                                    (debug_last_wb_wnum >= 5'd20) ? (debug_last_wb_wnum - 5'd20) :
+                                    (debug_last_wb_wnum >= 5'd10) ? (debug_last_wb_wnum - 5'd10) :
+                                                                    debug_last_wb_wnum[3:0];
+    wire [7:0] last_wb_tens_char  = (debug_last_wb_wnum >= 5'd30) ? 8'h33 :
+                                    (debug_last_wb_wnum >= 5'd20) ? 8'h32 :
+                                    (debug_last_wb_wnum >= 5'd10) ? 8'h31 :
+                                                                    8'h30;
+    wire [7:0] last_wb_ones_char  = 8'h30 + {4'b0, last_wb_ones_value};
+    wire [39:0] last_wb_name = debug_last_wb_valid ? {8'h52, last_wb_tens_char, last_wb_ones_char, 16'h2020} :
+                                                     "R--  ";
+
     always @(*)
     begin
         case (display_number)
@@ -142,44 +168,50 @@ module soc_lite_lcd_top #(
             6'd3:
             begin
                 display_valid = 1'b1;
-                display_name  = "WNUM ";
-                display_value = {27'd0, debug_wb_rf_wnum};
+                display_name  = last_wb_name;
+                display_value = debug_last_wb_valid ? debug_last_wb_wdata : 32'd0;
             end
             6'd4:
             begin
                 display_valid = 1'b1;
-                display_name  = "WDAT ";
-                display_value = debug_wb_rf_wdata;
+                display_name  = "WRPC ";
+                display_value = debug_last_wb_valid ? debug_last_wb_pc : 32'd0;
             end
             6'd5:
-            begin
-                display_valid = 1'b1;
-                display_name  = "WE   ";
-                display_value = {28'd0, debug_wb_rf_we};
-            end
-            6'd6:
             begin
                 display_valid = 1'b1;
                 display_name  = "STEP ";
                 display_value = debug_step_count;
             end
-            6'd7:
+            6'd6:
             begin
                 display_valid = 1'b1;
                 display_name  = "NUM  ";
                 display_value = num_data;
             end
+            6'd7:
+            begin
+                display_valid = 1'b1;
+                display_name  = "MODE ";
+                display_value = {31'd0, debug_mode_run};
+            end
             6'd8:
             begin
                 display_valid = 1'b1;
-                display_name  = "SW   ";
-                display_value = {24'd0, switch};
+                display_name  = "RUN  ";
+                display_value = {31'd0, debug_run_active};
             end
             6'd9:
             begin
                 display_valid = 1'b1;
-                display_name  = "CPUE ";
-                display_value = {31'd0, debug_cpu_en};
+                display_name  = "DONE ";
+                display_value = {31'd0, debug_run_done};
+            end
+            6'd10:
+            begin
+                display_valid = 1'b1;
+                display_name  = "SW   ";
+                display_value = {24'd0, switch};
             end
             default:
             begin

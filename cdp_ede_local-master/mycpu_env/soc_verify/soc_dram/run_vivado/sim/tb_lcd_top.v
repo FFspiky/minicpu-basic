@@ -72,9 +72,15 @@ module tb_lcd_top;
         #200;
         resetn = 1'b1;
         #200;
+        btn_step[0] = 1'b0;
+        #100;
+        btn_step[0] = 1'b1;
+        #300;
         switch[7] = 1'b1;
-        #200;
-        switch[7] = 1'b0;
+        #100;
+        btn_step[1] = 1'b0;
+        #100;
+        btn_step[1] = 1'b1;
         #2000;
         $finish;
     end

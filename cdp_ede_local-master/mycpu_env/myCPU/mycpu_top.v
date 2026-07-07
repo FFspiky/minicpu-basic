@@ -18,7 +18,12 @@ module mycpu_top(
     output reg  [31:0] debug_wb_pc,
     output reg  [ 3:0] debug_wb_rf_we,
     output reg  [ 4:0] debug_wb_rf_wnum,
-    output reg  [31:0] debug_wb_rf_wdata
+    output reg  [31:0] debug_wb_rf_wdata,
+
+    output reg         debug_last_wb_valid,
+    output reg  [31:0] debug_last_wb_pc,
+    output reg  [ 4:0] debug_last_wb_wnum,
+    output reg  [31:0] debug_last_wb_wdata
 );
 
     localparam RESET_PC = 32'h1bfffffc;
@@ -183,11 +188,13 @@ module mycpu_top(
     wire [31:0] rf_rdata2;
     wire [31:0] rf_wdata;
     wire        rf_we_valid;
+    wire        rf_last_wb_valid;
 
     assign rf_raddr1   = rj;
     assign rf_raddr2   = sel_rf_ra2 ? rk : rd;
     assign rf_waddr    = sel_rf_dst ? rd : 5'd1;
     assign rf_we_valid = cpu_en & rf_we & valid;
+    assign rf_last_wb_valid = rf_we_valid & (rf_waddr != 5'd0);
 
     regfile u_regfile(
         .clk    (clk),
@@ -244,12 +251,23 @@ module mycpu_top(
             debug_wb_rf_we    <= 4'b0;
             debug_wb_rf_wnum  <= 5'b0;
             debug_wb_rf_wdata <= 32'b0;
+            debug_last_wb_valid <= 1'b0;
+            debug_last_wb_pc    <= 32'b0;
+            debug_last_wb_wnum  <= 5'b0;
+            debug_last_wb_wdata <= 32'b0;
         end
         else if (cpu_en) begin
             debug_wb_pc       <= pc;
             debug_wb_rf_we    <= {4{rf_we_valid}};
             debug_wb_rf_wnum  <= rf_we_valid ? rf_waddr : 5'b0;
             debug_wb_rf_wdata <= rf_we_valid ? rf_wdata : 32'b0;
+
+            if (rf_last_wb_valid) begin
+                debug_last_wb_valid <= 1'b1;
+                debug_last_wb_pc    <= pc;
+                debug_last_wb_wnum  <= rf_waddr;
+                debug_last_wb_wdata <= rf_wdata;
+            end
         end
     end
 

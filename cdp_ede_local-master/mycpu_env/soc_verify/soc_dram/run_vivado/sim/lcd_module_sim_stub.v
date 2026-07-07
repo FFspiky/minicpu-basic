@@ -45,7 +45,7 @@ module lcd_module(
 
             if (page_timer == 8'hff)
             begin
-                display_number <= (display_number == 6'd9) ? 6'd1 : display_number + 6'd1;
+                display_number <= (display_number == 6'd10) ? 6'd1 : display_number + 6'd1;
             end
         end
     end
