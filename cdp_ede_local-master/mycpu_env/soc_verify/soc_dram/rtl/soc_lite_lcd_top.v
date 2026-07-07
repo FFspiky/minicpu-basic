@@ -3,7 +3,8 @@
 
 module soc_lite_lcd_top #(
     parameter SIMULATION  = 1'b0,
-    parameter SINGLE_STEP = 1'b1
+    parameter SINGLE_STEP = 1'b1,
+    parameter CPU_USE_PIPELINE = 1'b1
 )
 (
     input  wire        resetn,
@@ -72,7 +73,8 @@ module soc_lite_lcd_top #(
 
     soc_lite_top #(
         .SIMULATION  (SIMULATION),
-        .SINGLE_STEP (SINGLE_STEP)
+        .SINGLE_STEP (SINGLE_STEP),
+        .CPU_USE_PIPELINE (CPU_USE_PIPELINE)
     ) u_soc (
         .resetn              (resetn),
         .clk                 (board_clk),

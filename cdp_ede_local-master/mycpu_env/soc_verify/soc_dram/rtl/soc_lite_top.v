@@ -66,7 +66,8 @@ THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 module soc_lite_top #(
     parameter SIMULATION  = 1'b0,
-    parameter SINGLE_STEP = 1'b0
+    parameter SINGLE_STEP = 1'b0,
+    parameter CPU_USE_PIPELINE = 1'b1
 )
 (
     input  wire        resetn, 
@@ -316,7 +317,9 @@ end
 endgenerate
 
 //cpu
-mycpu_top cpu(
+mycpu_top #(
+    .USE_PIPELINE    (CPU_USE_PIPELINE)
+) cpu(
     .clk              (cpu_clk       ),
     .resetn           (cpu_resetn    ),  //low active
     .cpu_en           (cpu_en        ),
@@ -354,11 +357,14 @@ begin
 end
 
 //inst ram
-inst_ram inst_ram
+inst_ram #(
+    .ADDR_WIDTH(18),
+    .DEPTH     (1 << 18)
+) inst_ram
 (
     .clk   (cpu_clk            ),   
     .we    (cpu_inst_we        ),   
-    .a     (cpu_inst_addr[17:2]),   
+    .a     (cpu_inst_addr[19:2]),
     .d     (cpu_inst_wdata     ),   
     .spo   (cpu_inst_rdata     )   
 );
@@ -386,11 +392,14 @@ bridge_1x2 bridge_1x2(
  );
 
 //data ram
-data_ram data_ram
+data_ram #(
+    .ADDR_WIDTH(18),
+    .DEPTH     (1 << 18)
+) data_ram
 (
     .clk   (cpu_clk            ),   
     .we    (data_sram_we & data_sram_en),   
-    .a     (data_sram_addr[17:2]),   
+    .a     (data_sram_addr[19:2]),
     .d     (data_sram_wdata    ),   
     .spo   (data_sram_rdata    )   
 );
