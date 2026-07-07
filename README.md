@@ -144,3 +144,28 @@ D:\CPU_DESIGN\cdp_ede_pipeline\mycpu_env\soc_verify\soc_dram\run_vivado\project_
 - 流水线环境只保留流水线 `mycpu_top` + `mycpu_pipeline`。
 - 两个环境的 trace 工程和上板工程互相独立，均由各自目录下的脚本生成。
 - `project/`、`project_lcd/` 和 Vivado/IP 中间产物不纳入版本管理。
+
+## Pipeline board verification notes
+
+- `cdp_ede_local-master/` is the single-cycle CPU environment.
+- `cdp_ede_pipeline/` is the five-stage pipeline CPU environment.
+- CPU type is selected by directory, not by `USE_PIPELINE` or `CPU_USE_PIPELINE`.
+- Pipeline board top: `D:\CPU_DESIGN\cdp_ede_pipeline\mycpu_env\soc_verify\soc_dram\rtl\soc_lite_lcd_top.v`.
+- Pipeline board project script:
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_pipeline\mycpu_env\soc_verify\soc_dram\run_vivado\create_board_project.tcl'
+```
+
+- Pipeline bitstream script:
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_pipeline\mycpu_env\soc_verify\soc_dram\run_vivado\run_soc_dram_lcd_impl.tcl'
+```
+
+- In board single-step mode, STEP runs the CPU until one instruction commits.
+- In RUN mode, DONE is asserted when `END_PC = 32'h1c000100` commits.
+- `END_PC` remains `32'h1c000100` by default; the LCD smoke test may override it to a short-running commit PC.
+- LCD pages: `WBPC`, `INST`, `Rxx`, `WRPC`, `STEP`, `CYCL`, `IFPC`, `CMTPC`, `CMTI`, `PVLD`, `HZD`, `NUM`, `MODE`, `RUN`, `DONE`, `SW`.
+- `PVLD[3:0]` shows `{IFID, IDEX, EXMEM, MEMWB}`.
+- `HZD[2:0]` shows `{load-use stall, branch taken/flush, branch-in-EX}`.

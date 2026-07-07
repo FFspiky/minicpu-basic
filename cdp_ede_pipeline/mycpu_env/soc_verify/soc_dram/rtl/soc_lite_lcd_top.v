@@ -3,7 +3,8 @@
 
 module soc_lite_lcd_top #(
     parameter SIMULATION  = 1'b0,
-    parameter SINGLE_STEP = 1'b1
+    parameter SINGLE_STEP = 1'b1,
+    parameter [31:0] END_PC = 32'h1c000100
 )
 (
     input  wire        resetn,
@@ -62,6 +63,13 @@ module soc_lite_lcd_top #(
     wire [31:0] debug_inst;
     wire        debug_cpu_en;
     wire [31:0] debug_step_count;
+    wire [31:0] debug_cycle_count;
+    wire        debug_commit_valid;
+    wire [31:0] debug_commit_pc;
+    wire [31:0] debug_commit_inst;
+    wire [31:0] debug_fetch_pc;
+    wire [3 :0] debug_pipe_valid;
+    wire [2 :0] debug_pipe_hazard;
     wire        debug_last_wb_valid;
     wire [31:0] debug_last_wb_pc;
     wire [4 :0] debug_last_wb_wnum;
@@ -72,7 +80,8 @@ module soc_lite_lcd_top #(
 
     soc_lite_top #(
         .SIMULATION  (SIMULATION),
-        .SINGLE_STEP (SINGLE_STEP)
+        .SINGLE_STEP (SINGLE_STEP),
+        .END_PC      (END_PC)
     ) u_soc (
         .resetn              (resetn),
         .clk                 (board_clk),
@@ -95,6 +104,13 @@ module soc_lite_lcd_top #(
         .debug_inst          (debug_inst),
         .debug_cpu_en        (debug_cpu_en),
         .debug_step_count    (debug_step_count),
+        .debug_cycle_count   (debug_cycle_count),
+        .debug_commit_valid  (debug_commit_valid),
+        .debug_commit_pc     (debug_commit_pc),
+        .debug_commit_inst   (debug_commit_inst),
+        .debug_fetch_pc      (debug_fetch_pc),
+        .debug_pipe_valid    (debug_pipe_valid),
+        .debug_pipe_hazard   (debug_pipe_hazard),
         .debug_last_wb_valid (debug_last_wb_valid),
         .debug_last_wb_pc    (debug_last_wb_pc),
         .debug_last_wb_wnum  (debug_last_wb_wnum),
@@ -186,28 +202,64 @@ module soc_lite_lcd_top #(
             6'd6:
             begin
                 display_valid = 1'b1;
+                display_name  = "CYCL ";
+                display_value = debug_cycle_count;
+            end
+            6'd7:
+            begin
+                display_valid = 1'b1;
+                display_name  = "IFPC ";
+                display_value = debug_fetch_pc;
+            end
+            6'd8:
+            begin
+                display_valid = 1'b1;
+                display_name  = "CMTPC";
+                display_value = debug_commit_pc;
+            end
+            6'd9:
+            begin
+                display_valid = 1'b1;
+                display_name  = "CMTI ";
+                display_value = debug_commit_inst;
+            end
+            6'd10:
+            begin
+                display_valid = 1'b1;
+                display_name  = "PVLD ";
+                display_value = {28'd0, debug_pipe_valid};
+            end
+            6'd11:
+            begin
+                display_valid = 1'b1;
+                display_name  = "HZD  ";
+                display_value = {29'd0, debug_pipe_hazard};
+            end
+            6'd12:
+            begin
+                display_valid = 1'b1;
                 display_name  = "NUM  ";
                 display_value = num_data;
             end
-            6'd7:
+            6'd13:
             begin
                 display_valid = 1'b1;
                 display_name  = "MODE ";
                 display_value = {31'd0, debug_mode_run};
             end
-            6'd8:
+            6'd14:
             begin
                 display_valid = 1'b1;
                 display_name  = "RUN  ";
                 display_value = {31'd0, debug_run_active};
             end
-            6'd9:
+            6'd15:
             begin
                 display_valid = 1'b1;
                 display_name  = "DONE ";
                 display_value = {31'd0, debug_run_done};
             end
-            6'd10:
+            6'd16:
             begin
                 display_valid = 1'b1;
                 display_name  = "SW   ";

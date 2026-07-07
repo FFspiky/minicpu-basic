@@ -23,7 +23,14 @@ module mycpu_pipeline(
     output reg         debug_last_wb_valid,
     output reg  [31:0] debug_last_wb_pc,
     output reg  [ 4:0] debug_last_wb_wnum,
-    output reg  [31:0] debug_last_wb_wdata
+    output reg  [31:0] debug_last_wb_wdata,
+
+    output wire        debug_commit_valid,
+    output wire [31:0] debug_commit_pc,
+    output wire [31:0] debug_commit_inst,
+    output wire [31:0] debug_fetch_pc,
+    output wire [ 3:0] debug_pipe_valid,
+    output wire [ 2:0] debug_pipe_hazard
 );
 
     localparam RESET_PC = 32'h1bfffffc;
@@ -60,6 +67,7 @@ module mycpu_pipeline(
     reg         id_ex_valid;
     reg  [31:0] id_ex_pc;
     reg  [31:0] id_ex_pc_plus4;
+    reg  [31:0] id_ex_inst;
     reg  [31:0] id_ex_ext_imm;
     reg  [31:0] id_ex_rdata1;
     reg  [31:0] id_ex_rdata2;
@@ -82,6 +90,7 @@ module mycpu_pipeline(
     reg         ex_mem_valid;
     reg  [31:0] ex_mem_pc;
     reg  [31:0] ex_mem_pc_plus4;
+    reg  [31:0] ex_mem_inst;
     reg  [31:0] ex_mem_alu_result;
     reg  [31:0] ex_mem_ext_imm;
     reg  [31:0] ex_mem_store_data;
@@ -94,6 +103,7 @@ module mycpu_pipeline(
     reg         mem_wb_valid;
     reg  [31:0] mem_wb_pc;
     reg  [31:0] mem_wb_pc_plus4;
+    reg  [31:0] mem_wb_inst;
     reg  [31:0] mem_wb_alu_result;
     reg  [31:0] mem_wb_ext_imm;
     reg  [31:0] mem_wb_mem_rdata;
@@ -385,6 +395,13 @@ module mycpu_pipeline(
 
     assign if_next_pc = ex_branch_taken ? ex_branch_next_pc : if_pc_plus4;
 
+    assign debug_commit_valid = mem_wb_valid;
+    assign debug_commit_pc    = mem_wb_pc;
+    assign debug_commit_inst  = mem_wb_inst;
+    assign debug_fetch_pc     = pc;
+    assign debug_pipe_valid   = {if_id_valid, id_ex_valid, ex_mem_valid, mem_wb_valid};
+    assign debug_pipe_hazard  = {load_use_stall, ex_branch_taken, id_ex_br_en & id_ex_valid};
+
     // =========================================================
     // MEM stage
     // =========================================================
@@ -439,6 +456,7 @@ module mycpu_pipeline(
             id_ex_valid        <= 1'b0;
             id_ex_pc           <= 32'b0;
             id_ex_pc_plus4     <= 32'b0;
+            id_ex_inst         <= 32'b0;
             id_ex_ext_imm      <= 32'b0;
             id_ex_rdata1       <= 32'b0;
             id_ex_rdata2       <= 32'b0;
@@ -461,6 +479,7 @@ module mycpu_pipeline(
         else if (cpu_en) begin
             if (ex_branch_taken || load_use_stall) begin
                 id_ex_valid        <= 1'b0;
+                id_ex_inst         <= 32'b0;
                 id_ex_src1_valid   <= 1'b0;
                 id_ex_src2_valid   <= 1'b0;
                 id_ex_data_ram_we  <= 1'b0;
@@ -472,6 +491,7 @@ module mycpu_pipeline(
                 id_ex_valid        <= if_id_valid;
                 id_ex_pc           <= if_id_pc;
                 id_ex_pc_plus4     <= if_id_pc_plus4;
+                id_ex_inst         <= if_id_inst;
                 id_ex_ext_imm      <= id_ext_imm;
                 id_ex_rdata1       <= id_rdata1;
                 id_ex_rdata2       <= id_rdata2;
@@ -499,6 +519,7 @@ module mycpu_pipeline(
             ex_mem_valid       <= 1'b0;
             ex_mem_pc          <= 32'b0;
             ex_mem_pc_plus4    <= 32'b0;
+            ex_mem_inst        <= 32'b0;
             ex_mem_alu_result  <= 32'b0;
             ex_mem_ext_imm     <= 32'b0;
             ex_mem_store_data  <= 32'b0;
@@ -512,6 +533,7 @@ module mycpu_pipeline(
             ex_mem_valid       <= id_ex_valid;
             ex_mem_pc          <= id_ex_pc;
             ex_mem_pc_plus4    <= id_ex_pc_plus4;
+            ex_mem_inst        <= id_ex_inst;
             ex_mem_alu_result  <= ex_alu_result;
             ex_mem_ext_imm     <= id_ex_ext_imm;
             ex_mem_store_data  <= ex_rdata2_forwarded;
@@ -528,6 +550,7 @@ module mycpu_pipeline(
             mem_wb_valid      <= 1'b0;
             mem_wb_pc         <= 32'b0;
             mem_wb_pc_plus4   <= 32'b0;
+            mem_wb_inst       <= 32'b0;
             mem_wb_alu_result <= 32'b0;
             mem_wb_ext_imm    <= 32'b0;
             mem_wb_mem_rdata  <= 32'b0;
@@ -539,6 +562,7 @@ module mycpu_pipeline(
             mem_wb_valid      <= ex_mem_valid;
             mem_wb_pc         <= ex_mem_pc;
             mem_wb_pc_plus4   <= ex_mem_pc_plus4;
+            mem_wb_inst       <= ex_mem_inst;
             mem_wb_alu_result <= ex_mem_alu_result;
             mem_wb_ext_imm    <= ex_mem_ext_imm;
             mem_wb_mem_rdata  <= data_sram_rdata;

@@ -66,7 +66,8 @@ THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 module soc_lite_top #(
     parameter SIMULATION  = 1'b0,
-    parameter SINGLE_STEP = 1'b0
+    parameter SINGLE_STEP = 1'b0,
+    parameter [31:0] END_PC = 32'h1c000100
 )
 (
     input  wire        resetn, 
@@ -91,6 +92,13 @@ module soc_lite_top #(
     output wire [31:0] debug_inst,
     output wire        debug_cpu_en,
     output wire [31:0] debug_step_count,
+    output wire [31:0] debug_cycle_count,
+    output wire        debug_commit_valid,
+    output wire [31:0] debug_commit_pc,
+    output wire [31:0] debug_commit_inst,
+    output wire [31:0] debug_fetch_pc,
+    output wire [3 :0] debug_pipe_valid,
+    output wire [2 :0] debug_pipe_hazard,
     output wire        debug_last_wb_valid,
     output wire [31:0] debug_last_wb_pc,
     output wire [4 :0] debug_last_wb_wnum,
@@ -149,22 +157,38 @@ wire [31:0] conf_addr;
 wire [31:0] conf_wdata;
 wire [31:0] conf_rdata;
 
-//single-step control
-localparam [31:0] END_PC = 32'h1c000100;
-
 wire        cpu_en;
 wire [31:0] step_count;
+wire [31:0] cycle_count;
 wire        mode_run;
 wire        run_active;
 wire        run_done;
 reg  [31:0] debug_inst_r;
+wire        cpu_debug_commit_valid;
+wire [31:0] cpu_debug_commit_pc;
+wire [31:0] cpu_debug_commit_inst;
+wire [31:0] cpu_debug_fetch_pc;
+wire [3 :0] cpu_debug_pipe_valid;
+wire [2 :0] cpu_debug_pipe_hazard;
+wire        commit_fire;
+reg         debug_commit_valid_r;
+reg  [31:0] debug_commit_pc_r;
+reg  [31:0] debug_commit_inst_r;
 
 assign debug_cpu_en     = cpu_en;
 assign debug_step_count = step_count;
+assign debug_cycle_count = cycle_count;
 assign debug_inst       = debug_inst_r;
+assign debug_commit_valid = debug_commit_valid_r;
+assign debug_commit_pc    = debug_commit_pc_r;
+assign debug_commit_inst  = debug_commit_inst_r;
+assign debug_fetch_pc     = cpu_debug_fetch_pc;
+assign debug_pipe_valid   = cpu_debug_pipe_valid;
+assign debug_pipe_hazard  = cpu_debug_pipe_hazard;
 assign debug_mode_run   = mode_run;
 assign debug_run_active = run_active;
 assign debug_run_done   = run_done;
+assign commit_fire      = cpu_en & cpu_debug_commit_valid;
 
 generate if (SINGLE_STEP)
 begin: run_step_control
@@ -182,17 +206,20 @@ begin: run_step_control
     reg        run_btn_sync1;
     reg        run_btn_stable;
     reg [19:0] run_btn_cnt;
-    reg        step_pulse_r;
+    reg        step_start_pulse_r;
+    reg        step_active_r;
     reg        run_start_pulse_r;
     reg        run_active_r;
     reg        run_done_r;
     reg [31:0] step_count_r;
+    reg [31:0] cycle_count_r;
 
-    assign cpu_en     = !run_done_r && (mode_stable ? run_active_r : step_pulse_r);
-    assign step_count = step_count_r;
-    assign mode_run   = mode_stable;
-    assign run_active = run_active_r;
-    assign run_done   = run_done_r;
+    assign cpu_en      = !run_done_r && (mode_stable ? run_active_r : step_active_r);
+    assign step_count  = step_count_r;
+    assign cycle_count = cycle_count_r;
+    assign mode_run    = mode_stable;
+    assign run_active  = run_active_r;
+    assign run_done    = run_done_r;
 
     always @(posedge cpu_clk)
     begin
@@ -210,11 +237,13 @@ begin: run_step_control
             run_btn_sync1     <= 1'b0;
             run_btn_stable    <= 1'b0;
             run_btn_cnt       <= 20'd0;
-            step_pulse_r      <= 1'b0;
+            step_start_pulse_r <= 1'b0;
+            step_active_r     <= 1'b0;
             run_start_pulse_r <= 1'b0;
             run_active_r      <= 1'b0;
             run_done_r        <= 1'b0;
             step_count_r      <= 32'd0;
+            cycle_count_r     <= 32'd0;
         end
         else
         begin
@@ -225,23 +254,30 @@ begin: run_step_control
             run_btn_sync0  <= ~btn_step[1];
             run_btn_sync1  <= run_btn_sync0;
 
-            step_pulse_r      <= 1'b0;
-            run_start_pulse_r <= 1'b0;
+            step_start_pulse_r <= 1'b0;
+            run_start_pulse_r  <= 1'b0;
 
             if (cpu_en)
+            begin
+                cycle_count_r <= cycle_count_r + 32'd1;
+            end
+
+            if (commit_fire)
             begin
                 step_count_r <= step_count_r + 32'd1;
             end
 
-            if (cpu_en && cpu_inst_addr == END_PC)
+            if (commit_fire && cpu_debug_commit_pc == END_PC)
             begin
                 run_done_r   <= 1'b1;
                 run_active_r <= 1'b0;
+                step_active_r <= 1'b0;
             end
             else if (!run_done_r)
             begin
                 if (mode_stable)
                 begin
+                    step_active_r <= 1'b0;
                     if (run_start_pulse_r)
                     begin
                         run_active_r <= 1'b1;
@@ -250,6 +286,14 @@ begin: run_step_control
                 else
                 begin
                     run_active_r <= 1'b0;
+                    if (step_start_pulse_r)
+                    begin
+                        step_active_r <= 1'b1;
+                    end
+                    else if (commit_fire)
+                    begin
+                        step_active_r <= 1'b0;
+                    end
                 end
             end
 
@@ -277,7 +321,7 @@ begin: run_step_control
                 step_btn_cnt    <= 20'd0;
                 if (step_btn_sync1)
                 begin
-                    step_pulse_r <= 1'b1;
+                    step_start_pulse_r <= 1'b1;
                 end
             end
             else
@@ -309,6 +353,7 @@ else
 begin: continuous_control
     assign cpu_en     = 1'b1;
     assign step_count = 32'd0;
+    assign cycle_count = 32'd0;
     assign mode_run   = 1'b0;
     assign run_active = 1'b1;
     assign run_done   = 1'b0;
@@ -338,18 +383,34 @@ mycpu_top cpu(
     .debug_last_wb_valid(debug_last_wb_valid),
     .debug_last_wb_pc   (debug_last_wb_pc   ),
     .debug_last_wb_wnum (debug_last_wb_wnum ),
-    .debug_last_wb_wdata(debug_last_wb_wdata)
+    .debug_last_wb_wdata(debug_last_wb_wdata),
+    .debug_commit_valid (cpu_debug_commit_valid),
+    .debug_commit_pc    (cpu_debug_commit_pc   ),
+    .debug_commit_inst  (cpu_debug_commit_inst ),
+    .debug_fetch_pc     (cpu_debug_fetch_pc    ),
+    .debug_pipe_valid   (cpu_debug_pipe_valid  ),
+    .debug_pipe_hazard  (cpu_debug_pipe_hazard )
 );
 
 always @(posedge cpu_clk)
 begin
     if (!cpu_resetn)
     begin
-        debug_inst_r <= 32'b0;
+        debug_inst_r          <= 32'b0;
+        debug_commit_valid_r  <= 1'b0;
+        debug_commit_pc_r     <= 32'b0;
+        debug_commit_inst_r   <= 32'b0;
     end
-    else if (cpu_en)
+    else
     begin
-        debug_inst_r <= cpu_inst_rdata;
+        debug_commit_valid_r <= 1'b0;
+        if (commit_fire)
+        begin
+            debug_inst_r         <= cpu_debug_commit_inst;
+            debug_commit_valid_r <= 1'b1;
+            debug_commit_pc_r    <= cpu_debug_commit_pc;
+            debug_commit_inst_r  <= cpu_debug_commit_inst;
+        end
     end
 end
 

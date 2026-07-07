@@ -23,7 +23,14 @@ module mycpu_top(
     output wire        debug_last_wb_valid,
     output wire [31:0] debug_last_wb_pc,
     output wire [ 4:0] debug_last_wb_wnum,
-    output wire [31:0] debug_last_wb_wdata
+    output wire [31:0] debug_last_wb_wdata,
+
+    output wire        debug_commit_valid,
+    output wire [31:0] debug_commit_pc,
+    output wire [31:0] debug_commit_inst,
+    output wire [31:0] debug_fetch_pc,
+    output wire [ 3:0] debug_pipe_valid,
+    output wire [ 2:0] debug_pipe_hazard
 );
 
     mycpu_pipeline u_cpu(
@@ -49,7 +56,14 @@ module mycpu_top(
         .debug_last_wb_valid (debug_last_wb_valid),
         .debug_last_wb_pc    (debug_last_wb_pc),
         .debug_last_wb_wnum  (debug_last_wb_wnum),
-        .debug_last_wb_wdata (debug_last_wb_wdata)
+        .debug_last_wb_wdata (debug_last_wb_wdata),
+
+        .debug_commit_valid  (debug_commit_valid),
+        .debug_commit_pc     (debug_commit_pc),
+        .debug_commit_inst   (debug_commit_inst),
+        .debug_fetch_pc      (debug_fetch_pc),
+        .debug_pipe_valid    (debug_pipe_valid),
+        .debug_pipe_hazard   (debug_pipe_hazard)
     );
 
 endmodule

@@ -2,6 +2,8 @@
 `default_nettype none
 
 module tb_lcd_top;
+    localparam [31:0] LCD_SIM_END_PC = 32'h1c01018c;
+
     reg         clk;
     reg         resetn;
     reg  [7:0]  switch;
@@ -26,10 +28,12 @@ module tb_lcd_top;
     wire        ct_sda;
     wire        ct_scl;
     wire        ct_rstn;
+    integer     timeout;
 
     soc_lite_lcd_top #(
         .SIMULATION  (1'b1),
-        .SINGLE_STEP (1'b1)
+        .SINGLE_STEP (1'b1),
+        .END_PC      (LCD_SIM_END_PC)
     ) dut (
         .resetn      (resetn),
         .clk         (clk),
@@ -62,6 +66,15 @@ module tb_lcd_top;
         forever #5 clk = ~clk;
     end
 
+    task press_step_button;
+        input integer index;
+        begin
+            btn_step[index] = 1'b0;
+            #100;
+            btn_step[index] = 1'b1;
+        end
+    endtask
+
     initial
     begin
         resetn      = 1'b0;
@@ -72,16 +85,59 @@ module tb_lcd_top;
         #200;
         resetn = 1'b1;
         #200;
-        btn_step[0] = 1'b0;
-        #100;
-        btn_step[0] = 1'b1;
-        #300;
+
+        press_step_button(0);
+        timeout = 0;
+        while (dut.u_soc.debug_step_count < 32'd1 && timeout < 2000)
+        begin
+            #10;
+            timeout = timeout + 1;
+        end
+        if (timeout >= 2000)
+        begin
+            $display("FAIL: STEP did not commit one instruction");
+            $display("DBG: step=%h cycle=%h mode=%b active=%b done=%b fetch=%h cmt=%h wb=%h pvld=%h hzd=%h",
+                     dut.u_soc.debug_step_count,
+                     dut.u_soc.debug_cycle_count,
+                     dut.u_soc.debug_mode_run,
+                     dut.u_soc.debug_run_active,
+                     dut.u_soc.debug_run_done,
+                     dut.u_soc.debug_fetch_pc,
+                     dut.u_soc.debug_commit_pc,
+                     dut.u_soc.debug_wb_pc,
+                     dut.u_soc.debug_pipe_valid,
+                     dut.u_soc.debug_pipe_hazard);
+            $fatal;
+        end
+
         switch[7] = 1'b1;
+        #200;
+        press_step_button(1);
+        timeout = 0;
+        while (!dut.u_soc.debug_run_done && timeout < 2000000)
+        begin
+            #10;
+            timeout = timeout + 1;
+        end
+        if (timeout >= 2000000)
+        begin
+            $display("FAIL: RUN did not reach END_PC");
+            $display("DBG: step=%h cycle=%h mode=%b active=%b done=%b fetch=%h cmt=%h wb=%h pvld=%h hzd=%h",
+                     dut.u_soc.debug_step_count,
+                     dut.u_soc.debug_cycle_count,
+                     dut.u_soc.debug_mode_run,
+                     dut.u_soc.debug_run_active,
+                     dut.u_soc.debug_run_done,
+                     dut.u_soc.debug_fetch_pc,
+                     dut.u_soc.debug_commit_pc,
+                     dut.u_soc.debug_wb_pc,
+                     dut.u_soc.debug_pipe_valid,
+                     dut.u_soc.debug_pipe_hazard);
+            $fatal;
+        end
+
+        $display("PASS: pipeline LCD STEP/RUN smoke test completed");
         #100;
-        btn_step[1] = 1'b0;
-        #100;
-        btn_step[1] = 1'b1;
-        #2000;
         $finish;
     end
 
