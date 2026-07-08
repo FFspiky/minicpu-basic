@@ -14,6 +14,7 @@
 *.ip_user_files/
 *.runs/
 *.sim/
+xsim.dir/
 
 # Generated implementation/synthesis artifacts
 *.bit
@@ -25,6 +26,7 @@
 
 # Keep the LCD pre-synthesized module used by the top-level project.
 !lcd_module.dcp
+!lcd_module_cell.dcp
 
 # Generated IP helper outputs. The repository keeps the XCI and ROM MIF.
 minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/doc/
@@ -43,3 +45,31 @@ minicpu_basic/minicpu_basic.srcs/sources_1/ip/**/*.xml
 
 # Unused historical IP left in the Vivado project folder.
 minicpu_basic/minicpu_basic.srcs/sources_1/ip/inst_ram_ip/
+
+# CDP/EDE generated Vivado state
+cdp_ede*/mycpu_env/**/run_vivado/project/
+cdp_ede*/mycpu_env/**/run_vivado/project_lcd/
+cdp_ede*/mycpu_env/func/obj/rom.vlog
+cdp_ede*/mycpu_env/func/obj/test.s
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/doc/
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/hdl/
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/misc/
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/sim/
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/simulation/
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/synth/
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/*.v
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/*.vh
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/*.xml
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/*.mif
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/*.xdc
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/*_stub.v
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/*_stub.vhdl
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/*_sim_netlist.v
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/*_sim_netlist.vhdl
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/*_ooc.xdc
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/*.veo
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/*.vho
+
+# Diagram editor backup files
+.$*.bkp
+*.drawio.bkp
