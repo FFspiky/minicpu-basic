@@ -53,6 +53,7 @@ cdp_ede*/mycpu_env/func/obj/rom.vlog
 cdp_ede*/mycpu_env/func/obj/test.s
 cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/doc/
 cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/hdl/
+cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/misc/
 cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/sim/
 cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/simulation/
 cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/synth/

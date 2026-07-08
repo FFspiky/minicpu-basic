@@ -5,12 +5,14 @@ module mycpu_top(
     input  wire        resetn,
     input  wire        cpu_en,
 
-    output wire        inst_sram_we,
+    output wire        inst_sram_en,
+    output wire [ 3:0] inst_sram_we,
     output wire [31:0] inst_sram_addr,
     output wire [31:0] inst_sram_wdata,
     input  wire [31:0] inst_sram_rdata,
 
-    output wire        data_sram_we,
+    output wire        data_sram_en,
+    output wire [ 3:0] data_sram_we,
     output wire [31:0] data_sram_addr,
     output wire [31:0] data_sram_wdata,
     input  wire [31:0] data_sram_rdata,
@@ -38,11 +40,13 @@ module mycpu_top(
         .resetn              (resetn),
         .cpu_en              (cpu_en),
 
+        .inst_sram_en        (inst_sram_en),
         .inst_sram_we        (inst_sram_we),
         .inst_sram_addr      (inst_sram_addr),
         .inst_sram_wdata     (inst_sram_wdata),
         .inst_sram_rdata     (inst_sram_rdata),
 
+        .data_sram_en        (data_sram_en),
         .data_sram_we        (data_sram_we),
         .data_sram_addr      (data_sram_addr),
         .data_sram_wdata     (data_sram_wdata),

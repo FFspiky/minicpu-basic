@@ -13,7 +13,7 @@ add_files -fileset sim_1 ../testbench
 add_files -scan_for_includes ../../../myCPU
 
 # Add constraints
-add_files -fileset constrs_1 -quiet ./constraints
+add_files -fileset constrs_1 -quiet ./constraints/soc_lite_top.xdc
 
 set_property -name "top" -value "tb_top" -objects  [get_filesets sim_1]
 set_property -name "xsim.simulate.log_all_signals" -value "1" -objects [get_filesets sim_1]

@@ -5,12 +5,14 @@ module mycpu_pipeline(
     input  wire        resetn,
     input  wire        cpu_en,
 
-    output wire        inst_sram_we,
+    output wire        inst_sram_en,
+    output wire [ 3:0] inst_sram_we,
     output wire [31:0] inst_sram_addr,
     output wire [31:0] inst_sram_wdata,
     input  wire [31:0] inst_sram_rdata,
 
-    output wire        data_sram_we,
+    output wire        data_sram_en,
+    output wire [ 3:0] data_sram_we,
     output wire [31:0] data_sram_addr,
     output wire [31:0] data_sram_wdata,
     input  wire [31:0] data_sram_rdata,
@@ -44,14 +46,19 @@ module mycpu_pipeline(
     // IF stage
     // =========================================================
 
-    reg         if_valid;
     reg  [31:0] pc;
+    reg         fetch_valid;
+    reg         fetch_resp_valid;
+    reg  [31:0] fetch_resp_pc;
+    reg  [31:0] fetch_resp_pc_plus4;
 
     wire [31:0] if_pc_plus4;
     wire [31:0] if_next_pc;
+    wire        load_use_stall;
 
     assign if_pc_plus4    = pc + 32'd4;
-    assign inst_sram_we   = 1'b0;
+    assign inst_sram_en   = cpu_en & !load_use_stall;
+    assign inst_sram_we   = 4'b0000;
     assign inst_sram_addr = pc;
     assign inst_sram_wdata = 32'b0;
 
@@ -324,7 +331,6 @@ module mycpu_pipeline(
     // =========================================================
 
     wire id_ex_is_load;
-    wire load_use_stall;
 
     assign id_ex_is_load = id_ex_valid & id_ex_rf_we & (id_ex_sel_rf_res == WB_FROM_MEM);
     assign load_use_stall =
@@ -406,9 +412,10 @@ module mycpu_pipeline(
     // MEM stage
     // =========================================================
 
-    assign data_sram_we    = cpu_en & ex_mem_valid & ex_mem_data_ram_we & ex_mem_data_ram_ce;
-    assign data_sram_addr  = ex_mem_alu_result;
-    assign data_sram_wdata = ex_mem_store_data;
+    assign data_sram_en    = cpu_en & id_ex_valid & id_ex_data_ram_ce;
+    assign data_sram_we    = {4{cpu_en & id_ex_valid & id_ex_data_ram_we & id_ex_data_ram_ce}};
+    assign data_sram_addr  = ex_alu_result;
+    assign data_sram_wdata = ex_rdata2_forwarded;
 
     // =========================================================
     // Pipeline register updates
@@ -416,17 +423,26 @@ module mycpu_pipeline(
 
     always @(posedge clk) begin
         if (!resetn) begin
-            if_valid <= 1'b0;
-            pc       <= RESET_PC;
+            pc                  <= RESET_PC;
+            fetch_valid         <= 1'b0;
+            fetch_resp_valid    <= 1'b0;
+            fetch_resp_pc       <= 32'b0;
+            fetch_resp_pc_plus4 <= 32'b0;
         end
         else if (cpu_en) begin
             if (ex_branch_taken) begin
-                if_valid <= 1'b1;
-                pc       <= ex_branch_next_pc;
+                pc                  <= ex_branch_next_pc;
+                fetch_valid         <= 1'b1;
+                fetch_resp_valid    <= 1'b0;
+                fetch_resp_pc       <= 32'b0;
+                fetch_resp_pc_plus4 <= 32'b0;
             end
             else if (!load_use_stall) begin
-                if_valid <= 1'b1;
-                pc       <= if_next_pc;
+                pc                  <= if_next_pc;
+                fetch_valid         <= 1'b1;
+                fetch_resp_valid    <= fetch_valid;
+                fetch_resp_pc       <= pc;
+                fetch_resp_pc_plus4 <= if_pc_plus4;
             end
         end
     end
@@ -443,9 +459,9 @@ module mycpu_pipeline(
                 if_id_valid <= 1'b0;
             end
             else if (!load_use_stall) begin
-                if_id_valid    <= if_valid;
-                if_id_pc       <= pc;
-                if_id_pc_plus4 <= if_pc_plus4;
+                if_id_valid    <= fetch_resp_valid;
+                if_id_pc       <= fetch_resp_pc;
+                if_id_pc_plus4 <= fetch_resp_pc_plus4;
                 if_id_inst     <= inst_sram_rdata;
             end
         end

@@ -20,17 +20,30 @@ wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh 6 cdp_e
 - This directory is the pipeline CPU environment.
 - The single-cycle CPU remains in `D:\CPU_DESIGN\cdp_ede_local-master`.
 - CPU type is selected by directory; this environment always builds `mycpu_top` + `mycpu_pipeline`.
-- Board top: `mycpu_env\soc_verify\soc_dram\rtl\soc_lite_lcd_top.v`.
+- `soc_bram` is the main pipeline trace and board environment; `soc_dram` is only kept as a compatibility/reference environment.
+- Board top: `mycpu_env\soc_verify\soc_bram\rtl\soc_lite_lcd_top.v`.
+- BRAM trace simulation:
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_pipeline\mycpu_env\soc_verify\soc_bram\run_vivado\run_soc_bram_sim.tcl'
+```
+
+- BRAM LCD smoke simulation:
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_pipeline\mycpu_env\soc_verify\soc_bram\run_vivado\run_soc_bram_lcd_sim.tcl'
+```
+
 - Board project script:
 
 ```powershell
-& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_pipeline\mycpu_env\soc_verify\soc_dram\run_vivado\create_board_project.tcl'
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_pipeline\mycpu_env\soc_verify\soc_bram\run_vivado\create_board_project.tcl'
 ```
 
-- LCD smoke simulation:
+- Bitstream script, intended to be run manually:
 
 ```powershell
-& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_pipeline\mycpu_env\soc_verify\soc_dram\run_vivado\run_soc_dram_lcd_sim.tcl'
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_pipeline\mycpu_env\soc_verify\soc_bram\run_vivado\run_soc_bram_lcd_impl.tcl'
 ```
 
 - STEP mode runs until one instruction commits.
@@ -39,3 +52,5 @@ wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh 6 cdp_e
 - LCD pages: `WBPC`, `INST`, `Rxx`, `WRPC`, `STEP`, `CYCL`, `IFPC`, `CMTPC`, `CMTI`, `PVLD`, `HZD`, `NUM`, `MODE`, `RUN`, `DONE`, `SW`.
 - `PVLD[3:0]` shows `{IFID, IDEX, EXMEM, MEMWB}`.
 - `HZD[2:0]` shows `{load-use stall, branch taken/flush, branch-in-EX}`.
+- Timing reports are written to `mycpu_env\soc_verify\soc_bram\run_vivado\reports`.
+- If the EXP program is changed before board generation, use `run_soc_bram_lcd_clean_impl.tcl` once to rebuild the project and generated IP products cleanly.

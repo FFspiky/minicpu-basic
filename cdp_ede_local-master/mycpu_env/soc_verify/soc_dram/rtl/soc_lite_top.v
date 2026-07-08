@@ -66,7 +66,8 @@ THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 module soc_lite_top #(
     parameter SIMULATION  = 1'b0,
-    parameter SINGLE_STEP = 1'b0
+    parameter SINGLE_STEP = 1'b0,
+    parameter [31:0] END_PC = 32'h1c000100
 )
 (
     input  wire        resetn, 
@@ -91,6 +92,13 @@ module soc_lite_top #(
     output wire [31:0] debug_inst,
     output wire        debug_cpu_en,
     output wire [31:0] debug_step_count,
+    output wire [31:0] debug_cycle_count,
+    output wire        debug_commit_valid,
+    output wire [31:0] debug_commit_pc,
+    output wire [31:0] debug_commit_inst,
+    output wire [31:0] debug_fetch_pc,
+    output wire [3 :0] debug_pipe_valid,
+    output wire [2 :0] debug_pipe_hazard,
     output wire        debug_last_wb_valid,
     output wire [31:0] debug_last_wb_pc,
     output wire [4 :0] debug_last_wb_wnum,
@@ -125,46 +133,66 @@ end
 endgenerate
 
 //cpu inst sram
-wire        cpu_inst_we;
+wire        cpu_inst_en;
+wire [3 :0] cpu_inst_we;
 wire [31:0] cpu_inst_addr;
 wire [31:0] cpu_inst_wdata;
-wire [31:0] cpu_inst_rdata;
+reg  [31:0] cpu_inst_rdata;
+wire [31:0] inst_ram_rdata;
 //cpu data sram
-wire        cpu_data_we;
+wire        cpu_data_en;
+wire [3 :0] cpu_data_we;
 wire [31:0] cpu_data_addr;
 wire [31:0] cpu_data_wdata;
-wire [31:0] cpu_data_rdata;
+reg  [31:0] cpu_data_rdata;
+wire [31:0] cpu_data_rdata_raw;
 
 //data sram
 wire        data_sram_en;
-wire        data_sram_we;
+wire [3 :0] data_sram_we;
 wire [31:0] data_sram_addr;
 wire [31:0] data_sram_wdata;
 wire [31:0] data_sram_rdata;
 
 //conf
 wire        conf_en;
-wire        conf_we;
+wire [3 :0] conf_we;
 wire [31:0] conf_addr;
 wire [31:0] conf_wdata;
 wire [31:0] conf_rdata;
 
-//single-step control
-localparam [31:0] END_PC = 32'h1c000100;
-
 wire        cpu_en;
 wire [31:0] step_count;
+wire [31:0] cycle_count;
 wire        mode_run;
 wire        run_active;
 wire        run_done;
 reg  [31:0] debug_inst_r;
+wire        cpu_debug_commit_valid;
+wire [31:0] cpu_debug_commit_pc;
+wire [31:0] cpu_debug_commit_inst;
+wire [31:0] cpu_debug_fetch_pc;
+wire [3 :0] cpu_debug_pipe_valid;
+wire [2 :0] cpu_debug_pipe_hazard;
+wire        commit_fire;
+reg         debug_commit_valid_r;
+reg  [31:0] debug_commit_pc_r;
+reg  [31:0] debug_commit_inst_r;
 
 assign debug_cpu_en     = cpu_en;
 assign debug_step_count = step_count;
+assign debug_cycle_count = cycle_count;
 assign debug_inst       = debug_inst_r;
+assign debug_commit_valid = debug_commit_valid_r;
+assign debug_commit_pc    = debug_commit_pc_r;
+assign debug_commit_inst  = debug_commit_inst_r;
+assign debug_fetch_pc     = cpu_debug_fetch_pc;
+assign debug_pipe_valid   = cpu_debug_pipe_valid;
+assign debug_pipe_hazard  = cpu_debug_pipe_hazard;
 assign debug_mode_run   = mode_run;
 assign debug_run_active = run_active;
 assign debug_run_done   = run_done;
+assign commit_fire      = cpu_en & cpu_debug_commit_valid;
 
 generate if (SINGLE_STEP)
 begin: run_step_control
@@ -182,17 +210,20 @@ begin: run_step_control
     reg        run_btn_sync1;
     reg        run_btn_stable;
     reg [19:0] run_btn_cnt;
-    reg        step_pulse_r;
+    reg        step_start_pulse_r;
+    reg        step_active_r;
     reg        run_start_pulse_r;
     reg        run_active_r;
     reg        run_done_r;
     reg [31:0] step_count_r;
+    reg [31:0] cycle_count_r;
 
-    assign cpu_en     = !run_done_r && (mode_stable ? run_active_r : step_pulse_r);
-    assign step_count = step_count_r;
-    assign mode_run   = mode_stable;
-    assign run_active = run_active_r;
-    assign run_done   = run_done_r;
+    assign cpu_en      = !run_done_r && (mode_stable ? run_active_r : step_active_r);
+    assign step_count  = step_count_r;
+    assign cycle_count = cycle_count_r;
+    assign mode_run    = mode_stable;
+    assign run_active  = run_active_r;
+    assign run_done    = run_done_r;
 
     always @(posedge cpu_clk)
     begin
@@ -210,11 +241,13 @@ begin: run_step_control
             run_btn_sync1     <= 1'b0;
             run_btn_stable    <= 1'b0;
             run_btn_cnt       <= 20'd0;
-            step_pulse_r      <= 1'b0;
+            step_start_pulse_r <= 1'b0;
+            step_active_r     <= 1'b0;
             run_start_pulse_r <= 1'b0;
             run_active_r      <= 1'b0;
             run_done_r        <= 1'b0;
             step_count_r      <= 32'd0;
+            cycle_count_r     <= 32'd0;
         end
         else
         begin
@@ -225,23 +258,30 @@ begin: run_step_control
             run_btn_sync0  <= ~btn_step[1];
             run_btn_sync1  <= run_btn_sync0;
 
-            step_pulse_r      <= 1'b0;
-            run_start_pulse_r <= 1'b0;
+            step_start_pulse_r <= 1'b0;
+            run_start_pulse_r  <= 1'b0;
 
             if (cpu_en)
+            begin
+                cycle_count_r <= cycle_count_r + 32'd1;
+            end
+
+            if (commit_fire)
             begin
                 step_count_r <= step_count_r + 32'd1;
             end
 
-            if (cpu_en && cpu_inst_addr == END_PC)
+            if (commit_fire && cpu_debug_commit_pc == END_PC)
             begin
                 run_done_r   <= 1'b1;
                 run_active_r <= 1'b0;
+                step_active_r <= 1'b0;
             end
             else if (!run_done_r)
             begin
                 if (mode_stable)
                 begin
+                    step_active_r <= 1'b0;
                     if (run_start_pulse_r)
                     begin
                         run_active_r <= 1'b1;
@@ -250,6 +290,14 @@ begin: run_step_control
                 else
                 begin
                     run_active_r <= 1'b0;
+                    if (step_start_pulse_r)
+                    begin
+                        step_active_r <= 1'b1;
+                    end
+                    else if (commit_fire)
+                    begin
+                        step_active_r <= 1'b0;
+                    end
                 end
             end
 
@@ -277,7 +325,7 @@ begin: run_step_control
                 step_btn_cnt    <= 20'd0;
                 if (step_btn_sync1)
                 begin
-                    step_pulse_r <= 1'b1;
+                    step_start_pulse_r <= 1'b1;
                 end
             end
             else
@@ -309,6 +357,7 @@ else
 begin: continuous_control
     assign cpu_en     = 1'b1;
     assign step_count = 32'd0;
+    assign cycle_count = 32'd0;
     assign mode_run   = 1'b0;
     assign run_active = 1'b1;
     assign run_done   = 1'b0;
@@ -321,11 +370,13 @@ mycpu_top cpu(
     .resetn           (cpu_resetn    ),  //low active
     .cpu_en           (cpu_en        ),
 
+    .inst_sram_en     (cpu_inst_en   ),
     .inst_sram_we     (cpu_inst_we   ),
     .inst_sram_addr   (cpu_inst_addr ),
     .inst_sram_wdata  (cpu_inst_wdata),
     .inst_sram_rdata  (cpu_inst_rdata),
    
+    .data_sram_en     (cpu_data_en   ),
     .data_sram_we     (cpu_data_we   ),
     .data_sram_addr   (cpu_data_addr ),
     .data_sram_wdata  (cpu_data_wdata),
@@ -338,18 +389,34 @@ mycpu_top cpu(
     .debug_last_wb_valid(debug_last_wb_valid),
     .debug_last_wb_pc   (debug_last_wb_pc   ),
     .debug_last_wb_wnum (debug_last_wb_wnum ),
-    .debug_last_wb_wdata(debug_last_wb_wdata)
+    .debug_last_wb_wdata(debug_last_wb_wdata),
+    .debug_commit_valid (cpu_debug_commit_valid),
+    .debug_commit_pc    (cpu_debug_commit_pc   ),
+    .debug_commit_inst  (cpu_debug_commit_inst ),
+    .debug_fetch_pc     (cpu_debug_fetch_pc    ),
+    .debug_pipe_valid   (cpu_debug_pipe_valid  ),
+    .debug_pipe_hazard  (cpu_debug_pipe_hazard )
 );
 
 always @(posedge cpu_clk)
 begin
     if (!cpu_resetn)
     begin
-        debug_inst_r <= 32'b0;
+        debug_inst_r          <= 32'b0;
+        debug_commit_valid_r  <= 1'b0;
+        debug_commit_pc_r     <= 32'b0;
+        debug_commit_inst_r   <= 32'b0;
     end
-    else if (cpu_en)
+    else
     begin
-        debug_inst_r <= cpu_inst_rdata;
+        debug_commit_valid_r <= 1'b0;
+        if (commit_fire)
+        begin
+            debug_inst_r         <= cpu_debug_commit_inst;
+            debug_commit_valid_r <= 1'b1;
+            debug_commit_pc_r    <= cpu_debug_commit_pc;
+            debug_commit_inst_r  <= cpu_debug_commit_inst;
+        end
     end
 end
 
@@ -359,34 +426,51 @@ inst_ram #(
     .DEPTH     (1 << 18)
 ) inst_ram
 (
-    .clk   (cpu_clk            ),   
-    .we    (cpu_inst_we        ),   
+    .clk   (cpu_clk            ),
+    .we    (|cpu_inst_we       ),
     .a     (cpu_inst_addr[19:2]),
-    .d     (cpu_inst_wdata     ),   
-    .spo   (cpu_inst_rdata     )   
+    .d     (cpu_inst_wdata     ),
+    .spo   (inst_ram_rdata     )
 );
 
+always @(posedge cpu_clk)
+begin
+    if (cpu_inst_en)
+    begin
+        cpu_inst_rdata <= inst_ram_rdata;
+    end
+end
+
 bridge_1x2 bridge_1x2(
-    .clk             ( cpu_clk         ), // i, 1                 
-    .resetn          ( cpu_resetn      ), // i, 1                 
-	  
-    .cpu_data_we     ( cpu_data_we     ), // i, 4                 
-    .cpu_data_addr   ( cpu_data_addr   ), // i, 32                
-    .cpu_data_wdata  ( cpu_data_wdata  ), // i, 32                
-    .cpu_data_rdata  ( cpu_data_rdata  ), // o, 32                
+    .clk             ( cpu_clk         ), // i, 1
+    .resetn          ( cpu_resetn      ), // i, 1
 
-    .data_sram_en    ( data_sram_en    ),			   
-    .data_sram_we    ( data_sram_we    ), // o, 4                 
+    .cpu_data_en     ( cpu_data_en     ), // i, 1
+    .cpu_data_we     ( cpu_data_we     ), // i, 4
+    .cpu_data_addr   ( cpu_data_addr   ), // i, 32
+    .cpu_data_wdata  ( cpu_data_wdata  ), // i, 32
+    .cpu_data_rdata  ( cpu_data_rdata_raw), // o, 32
+
+    .data_sram_en    ( data_sram_en    ),
+    .data_sram_we    ( data_sram_we    ), // o, 4
     .data_sram_addr  ( data_sram_addr  ), // o, `DATA_RAM_ADDR_LEN
-    .data_sram_wdata ( data_sram_wdata ), // o, 32                
-    .data_sram_rdata ( data_sram_rdata ), // i, 32                
+    .data_sram_wdata ( data_sram_wdata ), // o, 32
+    .data_sram_rdata ( data_sram_rdata ), // i, 32
 
-    .conf_en         ( conf_en         ), // o, 1                 
-    .conf_we         ( conf_we         ), // o, 4                 
-    .conf_addr       ( conf_addr       ), // o, 32                
-    .conf_wdata      ( conf_wdata      ), // o, 32                
-    .conf_rdata      ( conf_rdata      )  // i, 32                
- );
+    .conf_en         ( conf_en         ), // o, 1
+    .conf_we         ( conf_we         ), // o, 4
+    .conf_addr       ( conf_addr       ), // o, 32
+    .conf_wdata      ( conf_wdata      ), // o, 32
+    .conf_rdata      ( conf_rdata      )  // i, 32
+);
+
+always @(posedge cpu_clk)
+begin
+    if (cpu_data_en)
+    begin
+        cpu_data_rdata <= cpu_data_rdata_raw;
+    end
+end
 
 //data ram
 data_ram #(
@@ -394,27 +478,27 @@ data_ram #(
     .DEPTH     (1 << 18)
 ) data_ram
 (
-    .clk   (cpu_clk            ),   
-    .we    (data_sram_we & data_sram_en),   
+    .clk   (cpu_clk            ),
+    .we    (|data_sram_we & data_sram_en),
     .a     (data_sram_addr[19:2]),
-    .d     (data_sram_wdata    ),   
-    .spo   (data_sram_rdata    )   
+    .d     (data_sram_wdata    ),
+    .spo   (data_sram_rdata    )
 );
 
 //confreg
 confreg #(.SIMULATION(SIMULATION)) u_confreg
 (
-    .clk          ( cpu_clk    ),  // i, 1   
-    .timer_clk    ( timer_clk  ),  // i, 1   
-    .resetn       ( cpu_resetn ),  // i, 1    
-    .conf_en      ( conf_en    ),  // i, 1      
-    .conf_we      ( conf_we    ),  // i, 4      
-    .conf_addr    ( conf_addr  ),  // i, 32        
-    .conf_wdata   ( conf_wdata ),  // i, 32         
-    .conf_rdata   ( conf_rdata ),  // o, 32         
-    .led          ( led        ),  // o, 16   
-    .led_rg0      ( led_rg0    ),  // o, 2      
-    .led_rg1      ( led_rg1    ),  // o, 2      
+    .clk          ( cpu_clk    ),  // i, 1
+    .timer_clk    ( timer_clk  ),  // i, 1
+    .resetn       ( cpu_resetn ),  // i, 1
+    .conf_en      ( conf_en    ),  // i, 1
+    .conf_we      ( conf_we[0] ),  // i, 1
+    .conf_addr    ( conf_addr  ),  // i, 32
+    .conf_wdata   ( conf_wdata ),  // i, 32
+    .conf_rdata   ( conf_rdata ),  // o, 32
+    .led          ( led        ),  // o, 16
+    .led_rg0      ( led_rg0    ),  // o, 2
+    .led_rg1      ( led_rg1    ),  // o, 2
     .num_csn      ( num_csn    ),  // o, 8      
     .num_a_g      ( num_a_g    ),  // o, 7      
     .num_data     ( num_data   ),  // o, 32
