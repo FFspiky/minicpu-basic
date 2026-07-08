@@ -47,10 +47,22 @@ proc filter_new_files {files} {
     return $new_files
 }
 
+proc filter_new_fileset_files {files fileset_name} {
+    set new_files {}
+    set fileset [get_filesets $fileset_name]
+    foreach file $files {
+        set full [file normalize $file]
+        if {[llength [get_files -quiet -of_objects $fileset $full]] == 0} {
+            lappend new_files $full
+        }
+    }
+    return $new_files
+}
+
 proc add_new_design_files {files} {
-    set new_files [filter_new_files $files]
+    set new_files [filter_new_fileset_files $files sources_1]
     if {[llength $new_files] > 0} {
-        add_files -scan_for_includes $new_files
+        add_files -fileset sources_1 -scan_for_includes $new_files
     }
 }
 
@@ -83,6 +95,7 @@ add_new_design_files $rtl_files
 
 set ip_xci_files [glob -nocomplain ../rtl/xilinx_ip/*/*.xci]
 add_new_quiet_files $ip_xci_files
+add_new_design_files [glob -nocomplain ../rtl/xilinx_ip/clk_pll/*.v]
 add_new_design_files [glob -nocomplain ../../../myCPU/*.v]
 
 set board_sim_files [glob -nocomplain ./sim/*.v]
@@ -99,11 +112,26 @@ foreach ip_xci $ip_xci_files {
     }
 }
 
+set clk_pll_ip [get_ips -quiet clk_pll]
+if {$clk_pll_ip ne ""} {
+    set clk_pll_cpu_freq [get_property CONFIG.CLKOUT1_REQUESTED_OUT_FREQ $clk_pll_ip]
+    set clk_pll_cpu_div  [get_property CONFIG.MMCM_CLKOUT0_DIVIDE_F $clk_pll_ip]
+    if {$clk_pll_cpu_freq ne "25.000" || $clk_pll_cpu_div ne "36"} {
+        set_property -dict [list \
+            CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {25.000} \
+            CONFIG.MMCM_CLKOUT0_DIVIDE_F {36.000} \
+        ] $clk_pll_ip
+    }
+}
+
 set need_ip_generate $clean_project
 foreach required_ip_file {
     ../rtl/xilinx_ip/clk_pll/clk_pll.v
+    ../rtl/xilinx_ip/clk_pll/clk_pll_clk_wiz.v
     ../rtl/xilinx_ip/data_ram/sim/data_ram.v
+    ../rtl/xilinx_ip/data_ram/synth/data_ram.vhd
     ../rtl/xilinx_ip/inst_ram/sim/inst_ram.v
+    ../rtl/xilinx_ip/inst_ram/synth/inst_ram.vhd
 } {
     if {![file exists $required_ip_file]} {
         set need_ip_generate 1
@@ -125,5 +153,11 @@ add_new_quiet_files [list $lcd_dcp]
 
 set_property top soc_lite_lcd_top [current_fileset]
 set_property top tb_lcd_top [get_filesets sim_1]
+set impl_run [get_runs impl_1]
+set impl_opt_pre_tcl [file normalize [file join $script_dir impl_opt_design_pre.tcl]]
+set_property STEPS.OPT_DESIGN.TCL.PRE $impl_opt_pre_tcl $impl_run
+set_property STEPS.OPT_DESIGN.ARGS.DIRECTIVE NoBramPowerOpt $impl_run
+set_property STEPS.POWER_OPT_DESIGN.IS_ENABLED false $impl_run
+set_property STEPS.POST_PLACE_POWER_OPT_DESIGN.IS_ENABLED false $impl_run
 update_compile_order -fileset sources_1
 update_compile_order -fileset sim_1
