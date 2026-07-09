@@ -22,6 +22,14 @@ module soc_lite_top #(
     input  wire [3 :0] btn_key_row,
     input  wire [1 :0] btn_step,
 
+    output wire [31:0] game_car,
+    output wire [31:0] game_obs,
+    output wire [31:0] game_bonus,
+    output wire [31:0] game_flags,
+    output wire [31:0] game_score,
+    output wire        game_commit_toggle,
+    input  wire [31:0] lcd_status,
+
     output wire [31:0] debug_wb_pc,
     output wire [3 :0] debug_wb_rf_we,
     output wire [4 :0] debug_wb_rf_wnum,
@@ -61,43 +69,11 @@ begin: speedup_simulation
 end
 else
 begin: pll
-    localparam [3:0] BOARD_CPU_CLK_DIV_MINUS_1 = 4'd7;
-
-    wire pll_cpu_clk;
-    reg  [3:0] cpu_clk_div_cnt;
-    reg        cpu_clk_ce_r;
-
     clk_pll clk_pll
     (
         .clk_in1   (clk),
-        .cpu_clk   (pll_cpu_clk),
+        .cpu_clk   (cpu_clk),
         .timer_clk (timer_clk)
-    );
-
-    always @(posedge pll_cpu_clk)
-    begin
-        if (!resetn)
-        begin
-            cpu_clk_div_cnt <= 4'd0;
-            cpu_clk_ce_r    <= 1'b1;
-        end
-        else if (cpu_clk_div_cnt == BOARD_CPU_CLK_DIV_MINUS_1)
-        begin
-            cpu_clk_div_cnt <= 4'd0;
-            cpu_clk_ce_r    <= 1'b1;
-        end
-        else
-        begin
-            cpu_clk_div_cnt <= cpu_clk_div_cnt + 4'd1;
-            cpu_clk_ce_r    <= 1'b0;
-        end
-    end
-
-    BUFGCE u_cpu_clk_div_bufg
-    (
-        .I  (pll_cpu_clk),
-        .CE (cpu_clk_ce_r),
-        .O  (cpu_clk)
     );
 end
 endgenerate
@@ -560,6 +536,13 @@ confreg #(.SIMULATION(SIMULATION)) u_confreg
     .conf_addr   (conf_addr),
     .conf_wdata  (conf_wdata),
     .conf_rdata  (conf_rdata),
+    .game_car    (game_car),
+    .game_obs    (game_obs),
+    .game_bonus  (game_bonus),
+    .game_flags  (game_flags),
+    .game_score  (game_score),
+    .game_commit_toggle(game_commit_toggle),
+    .lcd_status  (lcd_status),
     .led         (led),
     .led_rg0     (led_rg0),
     .led_rg1     (led_rg1),

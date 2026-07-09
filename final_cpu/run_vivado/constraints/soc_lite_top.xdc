@@ -123,18 +123,7 @@ set_property IOSTANDARD LVCMOS33 [get_ports {btn_step[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {num_data[*]}]
 
 
-set raw_cpu_clk_obj [get_clocks -quiet cpu_clk_clk_pll]
-set raw_cpu_clk_pin [get_pins -quiet -hierarchical *clkout1_buf/O]
-set cpu_clk_div_pin [get_pins -quiet -hierarchical *u_cpu_clk_div_bufg/O]
-
-if {[llength $raw_cpu_clk_pin] > 0 && [llength $cpu_clk_div_pin] > 0} {
-    create_generated_clock -name cpu_clk_board -source [lindex $raw_cpu_clk_pin 0] -divide_by 8 [lindex $cpu_clk_div_pin 0]
-}
-
-set cpu_clk_obj   [get_clocks -quiet cpu_clk_board]
-if {[llength $cpu_clk_obj] == 0} {
-    set cpu_clk_obj $raw_cpu_clk_obj
-}
+set cpu_clk_obj   [get_clocks -quiet cpu_clk_clk_pll]
 set timer_clk_obj [get_clocks -quiet timer_clk_clk_pll]
 set lcd_clk_obj   [get_clocks -quiet clk]
 

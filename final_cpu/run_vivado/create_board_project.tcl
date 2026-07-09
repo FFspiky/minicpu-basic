@@ -66,6 +66,14 @@ proc add_new_design_files {files} {
     }
 }
 
+proc remove_design_file_if_present {file} {
+    set full [file normalize $file]
+    set existing [get_files -quiet -of_objects [get_filesets sources_1] $full]
+    if {[llength $existing] > 0} {
+        remove_files -fileset sources_1 $existing
+    }
+}
+
 proc add_new_quiet_files {files} {
     set new_files [filter_new_files $files]
     if {[llength $new_files] > 0} {
@@ -97,7 +105,8 @@ set ip_xci_files [glob -nocomplain ../rtl/xilinx_ip/*/*.xci]
 add_new_quiet_files $ip_xci_files
 add_new_design_files [glob -nocomplain ../rtl/xilinx_ip/clk_pll/*.v]
 
-set mycpu_files [list ../rtl/cpu/SimpleLACoreWrapRAM.v]
+remove_design_file_if_present ../rtl/cpu/SimpleLACoreWrapRAM.v
+set mycpu_files [list]
 foreach mycpu_file [glob -nocomplain ../rtl/cpu/*.v] {
     if {[file tail $mycpu_file] ne "SimpleLACoreWrapRAM.v"} {
         lappend mycpu_files $mycpu_file

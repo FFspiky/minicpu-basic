@@ -66,6 +66,14 @@ proc add_new_design_files {files} {
     }
 }
 
+proc remove_design_file_if_present {file} {
+    set full [file normalize $file]
+    set existing [get_files -quiet -of_objects [get_filesets sources_1] $full]
+    if {[llength $existing] > 0} {
+        remove_files -fileset sources_1 $existing
+    }
+}
+
 proc add_new_quiet_files {files} {
     set new_files [filter_new_files $files]
     if {[llength $new_files] > 0} {
@@ -103,6 +111,7 @@ foreach mycpu_file [glob -nocomplain ../../../myCPU/*.v] {
         lappend mycpu_files $mycpu_file
     }
 }
+remove_design_file_if_present ../../../myCPU/SimpleLACoreWrapRAM.v
 add_new_design_files $mycpu_files
 
 set board_sim_files [glob -nocomplain ./sim/*.v]
