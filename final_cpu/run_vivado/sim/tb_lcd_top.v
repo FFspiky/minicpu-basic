@@ -100,10 +100,11 @@ module tb_lcd_top;
         end
 
         if (dut.game_car[1:0] != 2'd1 || dut.game_flags[4:0] != 5'b11001 ||
-            dut.game_obs[31] != 1'b1 || dut.game_obs[15:4] != 12'd799)
+            dut.game_obs[31] != 1'b1 || dut.game_obs[15:4] != 12'd799 ||
+            num_data != 32'h0000_0000)
         begin
-            $display("FAIL: racing game initial MMIO state mismatch car=%h obs=%h flags=%h score=%h",
-                     dut.game_car, dut.game_obs, dut.game_flags, dut.game_score);
+            $display("FAIL: racing game initial MMIO state mismatch car=%h obs=%h flags=%h score=%h num=%h",
+                     dut.game_car, dut.game_obs, dut.game_flags, dut.game_score, num_data);
             $fatal;
         end
 

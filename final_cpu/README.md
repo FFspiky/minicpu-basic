@@ -58,3 +58,8 @@ make install
 
 This uses `/opt/loongarch32r/bin/loongarch32r-linux-gnusf-*` and updates
 `mem/exp23/inst_ram.mif` plus `mem/exp23/inst_ram.coe`.
+
+The game also writes the decimal score to the legacy seven-segment display
+register at `0xbfaf_f050`. Obstacle speed starts at 6 pixels per update and
+increases every 3 seconds of active play, up to speed level 10. Holding the up
+key adds a temporary speed boost.

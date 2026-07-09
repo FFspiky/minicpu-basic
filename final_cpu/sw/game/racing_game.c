@@ -4,6 +4,7 @@
 #define CAR_X_MIN   60u
 #define CAR_X_MAX   160u
 #define TICK_30HZ   3333333u
+#define MAX_SPEED_LEVEL 10u
 
 static unsigned int lfsr = 0xace1u;
 
@@ -20,6 +21,30 @@ static unsigned int rand_lane(void)
     return (lane == 3u) ? 0u : lane;
 }
 
+static unsigned int bcd_add(unsigned int value, unsigned int add)
+{
+    unsigned int result = 0u;
+    unsigned int carry = 0u;
+    unsigned int shift;
+
+    for (shift = 0u; shift < 32u; shift += 4u)
+    {
+        unsigned int digit = ((value >> shift) & 0xfu) + ((add >> shift) & 0xfu) + carry;
+        if (digit >= 10u)
+        {
+            digit -= 10u;
+            carry = 1u;
+        }
+        else
+        {
+            carry = 0u;
+        }
+        result |= (digit & 0xfu) << shift;
+    }
+
+    return result;
+}
+
 static void publish_state(unsigned int car_lane,
                           unsigned int obs_lane,
                           unsigned int obs_x,
@@ -29,6 +54,7 @@ static void publish_state(unsigned int car_lane,
                           unsigned int bonus_active,
                           unsigned int flags,
                           unsigned int score,
+                          unsigned int score_bcd,
                           unsigned int speed_level,
                           unsigned int frame)
 {
@@ -37,6 +63,7 @@ static void publish_state(unsigned int car_lane,
     MMIO32(GAME_BONUS)  = pack_obj(bonus_lane, bonus_x, bonus_active);
     MMIO32(GAME_FLAGS)  = flags;
     MMIO32(GAME_SCORE)  = ((speed_level & 0xffffu) << 16) | (score & 0xffffu);
+    MMIO32(NUM_DATA)    = score_bcd;
     MMIO32(GAME_COMMIT) = frame;
 }
 
@@ -52,6 +79,9 @@ int main(void)
     unsigned int over = 0u;
     unsigned int playing = 0u;
     unsigned int score = 0u;
+    unsigned int score_bcd = 0u;
+    unsigned int speed_level = 0u;
+    unsigned int level_seconds = 0u;
     unsigned int frame = 0u;
     unsigned int last_timer = MMIO32(TIMER);
     unsigned int prev_keys = 0u;
@@ -59,7 +89,7 @@ int main(void)
 
     publish_state(car_lane, obs_lane, obs_x, 1u, bonus_lane, bonus_x,
                   bonus_active, GAME_ENABLE | GAME_BG_EN | GAME_BL_EN,
-                  score, 0u, frame++);
+                  score, score_bcd, speed_level, frame++);
 
     for (;;)
     {
@@ -68,7 +98,7 @@ int main(void)
         unsigned int key_edge = keys & ~prev_keys;
         unsigned int flags = GAME_ENABLE | GAME_BG_EN | GAME_BL_EN;
         unsigned int accel = (keys & BTN_UP) != 0u;
-        unsigned int speed = accel ? 12u : 6u;
+        unsigned int speed = 6u + speed_level + (accel ? 4u : 0u);
 
         prev_keys = keys;
 
@@ -78,6 +108,9 @@ int main(void)
             over = 0u;
             paused = 0u;
             score = 0u;
+            score_bcd = 0u;
+            speed_level = 0u;
+            level_seconds = 0u;
             car_lane = 1u;
             obs_lane = rand_lane();
             obs_x = OBS_X_START;
@@ -142,6 +175,7 @@ int main(void)
                 {
                     bonus_active = 0u;
                     score += 50u;
+                    score_bcd = bcd_add(score_bcd, 0x50u);
                 }
 
                 sec_div++;
@@ -149,6 +183,13 @@ int main(void)
                 {
                     sec_div = 0u;
                     score += 10u;
+                    score_bcd = bcd_add(score_bcd, 0x10u);
+                    level_seconds++;
+                    if (level_seconds >= 3u && speed_level < MAX_SPEED_LEVEL)
+                    {
+                        level_seconds = 0u;
+                        speed_level++;
+                    }
                 }
             }
 
@@ -162,7 +203,8 @@ int main(void)
             }
 
             publish_state(car_lane, obs_lane, obs_x, 1u, bonus_lane, bonus_x,
-                          bonus_active, flags, score, accel ? 1u : 0u, frame++);
+                          bonus_active, flags, score, score_bcd,
+                          speed_level + (accel ? 1u : 0u), frame++);
         }
     }
 }

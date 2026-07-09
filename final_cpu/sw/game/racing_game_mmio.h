@@ -10,6 +10,7 @@
 #define GAME_SCORE     0xbfaf9040u
 #define GAME_COMMIT    0xbfaf9050u
 #define LCD_STATUS     0xbfaf9060u
+#define NUM_DATA       0xbfaff050u
 #define BTN_KEY        0xbfaff070u
 #define TIMER          0xbfafe000u
 

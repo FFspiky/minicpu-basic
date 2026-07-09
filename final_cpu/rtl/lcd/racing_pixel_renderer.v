@@ -42,6 +42,7 @@ module racing_pixel_renderer(
     wire [10:0] bonus_x0    = {1'b0, bonus_x};
     wire [10:0] bonus_x1    = {1'b0, bonus_x} + 11'd36;
     wire [9:0]  road_scroll = x + bg_scroll + score[9:0] + {speed_level[4:0], 5'b0};
+    wire        game_over_text;
 
     reg [8:0] car_y0;
     reg [8:0] obs_y0;
@@ -57,6 +58,54 @@ module racing_pixel_renderer(
             endcase
         end
     endfunction
+
+    function letter_pixel;
+        input [3:0] ch;
+        input [9:0] lx;
+        input [8:0] ly;
+        begin
+            case (ch)
+                4'd0: letter_pixel = (ly < 9'd6) || (ly >= 9'd42) || (lx < 10'd6) ||
+                                      ((lx >= 10'd22) && (ly >= 9'd24)) ||
+                                      ((ly >= 9'd22 && ly < 9'd28) && lx >= 10'd14); // G
+                4'd1: letter_pixel = (ly < 9'd6) || (ly >= 9'd22 && ly < 9'd28) ||
+                                      (lx < 10'd6) || (lx >= 10'd22); // A
+                4'd2: letter_pixel = (lx < 10'd6) || (lx >= 10'd22) ||
+                                      ((ly < 9'd24) &&
+                                       ((lx >= 10'd6 && lx < 10'd10) || (lx >= 10'd18 && lx < 10'd22))); // M
+                4'd3: letter_pixel = (lx < 10'd6) || (ly < 9'd6) ||
+                                      (ly >= 9'd22 && ly < 9'd28) || (ly >= 9'd42); // E
+                4'd4: letter_pixel = (lx < 10'd6) || (lx >= 10'd22) ||
+                                      (ly < 9'd6) || (ly >= 9'd42); // O
+                4'd5: letter_pixel = ((ly < 9'd34) && ((lx < 10'd6) || (lx >= 10'd22))) ||
+                                      ((ly >= 9'd34) && lx >= 10'd10 && lx < 10'd18); // V
+                4'd6: letter_pixel = (lx < 10'd6) || (ly < 9'd6) ||
+                                      (ly >= 9'd22 && ly < 9'd28) ||
+                                      ((lx >= 10'd22) && ly < 9'd28) ||
+                                      ((ly >= 9'd28) && (lx >= ly - 9'd8) && (lx < ly)); // R
+                default: letter_pixel = 1'b0;
+            endcase
+        end
+    endfunction
+
+    function game_over_letter;
+        input [9:0] tx;
+        input [8:0] ty;
+        begin
+            game_over_letter =
+                ((tx >= 10'd211 && tx < 10'd239) && letter_pixel(4'd0, tx - 10'd211, ty - 9'd216)) ||
+                ((tx >= 10'd253 && tx < 10'd281) && letter_pixel(4'd1, tx - 10'd253, ty - 9'd216)) ||
+                ((tx >= 10'd295 && tx < 10'd323) && letter_pixel(4'd2, tx - 10'd295, ty - 9'd216)) ||
+                ((tx >= 10'd337 && tx < 10'd365) && letter_pixel(4'd3, tx - 10'd337, ty - 9'd216)) ||
+                ((tx >= 10'd421 && tx < 10'd449) && letter_pixel(4'd4, tx - 10'd421, ty - 9'd216)) ||
+                ((tx >= 10'd463 && tx < 10'd491) && letter_pixel(4'd5, tx - 10'd463, ty - 9'd216)) ||
+                ((tx >= 10'd505 && tx < 10'd533) && letter_pixel(4'd3, tx - 10'd505, ty - 9'd216)) ||
+                ((tx >= 10'd547 && tx < 10'd575) && letter_pixel(4'd6, tx - 10'd547, ty - 9'd216));
+        end
+    endfunction
+
+    assign game_over_text = game_over && y >= 9'd216 && y < 9'd264 &&
+                            x >= 10'd211 && x < 10'd575 && game_over_letter(x, y);
 
     always @(*)
     begin
@@ -154,8 +203,7 @@ module racing_pixel_renderer(
 
                 if (game_over)
                 begin
-                    if ((x >= 10'd300 && x <= 10'd500 && y >= 9'd218 && y <= 9'd262) ||
-                        (x >= 10'd378 && x <= 10'd422 && y >= 9'd180 && y <= 9'd300))
+                    if (game_over_text)
                     begin
                         pixel = C_RED;
                     end
