@@ -96,7 +96,14 @@ add_new_design_files $rtl_files
 set ip_xci_files [glob -nocomplain ../rtl/xilinx_ip/*/*.xci]
 add_new_quiet_files $ip_xci_files
 add_new_design_files [glob -nocomplain ../rtl/xilinx_ip/clk_pll/*.v]
-add_new_design_files [glob -nocomplain ../../../myCPU/*.v]
+
+set mycpu_files [list ../../../myCPU/SimpleLACoreWrapRAM.v]
+foreach mycpu_file [glob -nocomplain ../../../myCPU/*.v] {
+    if {[file tail $mycpu_file] ne "SimpleLACoreWrapRAM.v"} {
+        lappend mycpu_files $mycpu_file
+    }
+}
+add_new_design_files $mycpu_files
 
 set board_sim_files [glob -nocomplain ./sim/*.v]
 if {[llength $board_sim_files] > 0} {
