@@ -97,7 +97,7 @@ set ip_xci_files [glob -nocomplain ../rtl/xilinx_ip/*/*.xci]
 add_new_quiet_files $ip_xci_files
 add_new_design_files [glob -nocomplain ../rtl/xilinx_ip/clk_pll/*.v]
 
-set mycpu_files [list ../../../myCPU/SimpleLACoreWrapRAM.v]
+set mycpu_files [list]
 foreach mycpu_file [glob -nocomplain ../../../myCPU/*.v] {
     if {[file tail $mycpu_file] ne "SimpleLACoreWrapRAM.v"} {
         lappend mycpu_files $mycpu_file
