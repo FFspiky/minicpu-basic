@@ -4,9 +4,8 @@ set -euo pipefail
 export PATH="/opt/loongarch32r/bin:$PATH"
 
 EXP_ID="${1:-${EXP:-6}}"
-ENV_DIR="${2:-${CPU_ENV_DIR:-final_cpu}}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ENV_DIR="${2:-${CPU_ENV_DIR:-cdp_ede_local-master}}"
+REPO_ROOT="/mnt/d/CPU_DESIGN"
 
 case "${ENV_DIR}" in
     /*)
