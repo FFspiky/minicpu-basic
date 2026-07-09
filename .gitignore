@@ -51,6 +51,7 @@ minicpu_basic/minicpu_basic.srcs/sources_1/ip/inst_ram_ip/
 final_cpu/run_vivado/project/
 final_cpu/run_vivado/project_lcd/
 final_cpu/run_vivado/reports/
+final_cpu/sw/game/obj/
 final_cpu/rtl/xilinx_ip/**/doc/
 final_cpu/rtl/xilinx_ip/**/hdl/
 final_cpu/rtl/xilinx_ip/**/misc/

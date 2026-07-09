@@ -98,7 +98,8 @@ proc add_new_constr_files {files} {
 set rtl_files [concat \
     [glob -nocomplain ../rtl/soc/*.v] \
     [glob -nocomplain ../rtl/soc/BRIDGE/*.v] \
-    [glob -nocomplain ../rtl/soc/CONFREG/*.v]]
+    [glob -nocomplain ../rtl/soc/CONFREG/*.v] \
+    [glob -nocomplain ../rtl/lcd/*.v]]
 add_new_design_files $rtl_files
 
 set ip_xci_files [glob -nocomplain ../rtl/xilinx_ip/*/*.xci]

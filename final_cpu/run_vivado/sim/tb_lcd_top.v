@@ -2,8 +2,6 @@
 `default_nettype none
 
 module tb_lcd_top;
-    localparam [31:0] LCD_SIM_END_PC = 32'h1c01018c;
-
     reg         clk;
     reg         resetn;
     reg  [7:0]  switch;
@@ -29,11 +27,11 @@ module tb_lcd_top;
     wire        ct_scl;
     wire        ct_rstn;
     integer     timeout;
+    reg         initial_commit_toggle;
 
     soc_lite_lcd_top #(
         .SIMULATION  (1'b1),
-        .SINGLE_STEP (1'b0),
-        .END_PC      (LCD_SIM_END_PC)
+        .SINGLE_STEP (1'b0)
     ) dut (
         .resetn      (resetn),
         .clk         (clk),
@@ -74,18 +72,19 @@ module tb_lcd_top;
         btn_step    = 2'b11;
 
         #200;
+        initial_commit_toggle = dut.game_commit_toggle;
         resetn = 1'b1;
         #200;
 
         timeout = 0;
-        while (!(dut.u_soc.debug_commit_valid && dut.u_soc.debug_commit_pc == LCD_SIM_END_PC) && timeout < 3000000)
+        while (dut.game_commit_toggle == initial_commit_toggle && timeout < 200000)
         begin
             #10;
             timeout = timeout + 1;
         end
-        if (timeout >= 3000000)
+        if (timeout >= 200000)
         begin
-            $display("FAIL: continuous LCD smoke test did not reach LCD_SIM_END_PC");
+            $display("FAIL: racing game did not write GAME_COMMIT");
             $display("DBG: step=%h cycle=%h mode=%b active=%b done=%b fetch=%h cmt=%h wb=%h pvld=%h hzd=%h",
                      dut.u_soc.debug_step_count,
                      dut.u_soc.debug_cycle_count,
@@ -100,7 +99,34 @@ module tb_lcd_top;
             $fatal;
         end
 
-        $display("PASS: final_cpu LCD continuous smoke test completed");
+        if (dut.game_car[1:0] != 2'd1 || dut.game_flags[4:0] != 5'b11001 ||
+            dut.game_obs[31] != 1'b1 || dut.game_obs[15:4] != 12'd799)
+        begin
+            $display("FAIL: racing game initial MMIO state mismatch car=%h obs=%h flags=%h score=%h",
+                     dut.game_car, dut.game_obs, dut.game_flags, dut.game_score);
+            $fatal;
+        end
+
+        timeout = 0;
+        while (dut.lcd_status[0] != 1'b1 && timeout < 3000000)
+        begin
+            #10;
+            timeout = timeout + 1;
+        end
+        if (timeout >= 3000000)
+        begin
+            $display("FAIL: LCD game renderer did not finish initialization");
+            $display("DBG: lcd_status=%h", dut.lcd_status);
+            $fatal;
+        end
+
+        if (lcd_cs !== 1'b0 || lcd_rd !== 1'b1 || lcd_bl_ctr !== 1'b1)
+        begin
+            $display("FAIL: LCD pins are not in active write-display mode");
+            $fatal;
+        end
+
+        $display("PASS: racing game CPU MMIO boot and LCD init smoke test completed");
         #100;
         $finish;
     end

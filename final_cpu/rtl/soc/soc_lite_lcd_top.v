@@ -4,6 +4,7 @@
 module soc_lite_lcd_top #(
     parameter SIMULATION  = 1'b0,
     parameter SINGLE_STEP = 1'b0,
+    parameter GAME_LCD    = 1'b1,
     parameter [31:0] END_PC = 32'h1c000100
 )
 (
@@ -34,27 +35,7 @@ module soc_lite_lcd_top #(
     output wire        ct_rstn
 );
 
-    wire board_clk;
-
-    generate if (SIMULATION)
-    begin: sim_clock
-        assign board_clk = clk;
-    end
-    else
-    begin: board_clock
-        wire clk_ibuf;
-
-        IBUF u_board_clk_ibuf(
-            .I (clk),
-            .O (clk_ibuf)
-        );
-
-        BUFG u_board_clk_bufg(
-            .I (clk_ibuf),
-            .O (board_clk)
-        );
-    end
-    endgenerate
+    wire lcd_clk;
 
     wire [31:0] debug_wb_pc;
     wire [3 :0] debug_wb_rf_we;
@@ -78,13 +59,21 @@ module soc_lite_lcd_top #(
     wire        debug_run_active;
     wire        debug_run_done;
 
+    wire [31:0] game_car;
+    wire [31:0] game_obs;
+    wire [31:0] game_bonus;
+    wire [31:0] game_flags;
+    wire [31:0] game_score;
+    wire        game_commit_toggle;
+    wire [31:0] lcd_status;
+
     soc_lite_top #(
         .SIMULATION  (SIMULATION),
         .SINGLE_STEP (SINGLE_STEP),
         .END_PC      (END_PC)
     ) u_soc (
         .resetn              (resetn),
-        .clk                 (board_clk),
+        .clk                 (clk),
 
         .led                 (led),
         .led_rg0             (led_rg0),
@@ -96,6 +85,15 @@ module soc_lite_lcd_top #(
         .btn_key_col         (btn_key_col),
         .btn_key_row         (btn_key_row),
         .btn_step            (btn_step),
+        .lcd_clk             (lcd_clk),
+
+        .game_car            (game_car),
+        .game_obs            (game_obs),
+        .game_bonus          (game_bonus),
+        .game_flags          (game_flags),
+        .game_score          (game_score),
+        .game_commit_toggle  (game_commit_toggle),
+        .lcd_status          (lcd_status),
 
         .debug_wb_pc         (debug_wb_pc),
         .debug_wb_rf_we      (debug_wb_rf_we),
@@ -151,33 +149,70 @@ module soc_lite_lcd_top #(
     reg  [39:0] display_name_next;
     reg  [31:0] display_value_next;
 
-    lcd_module u_lcd_module(
-        .clk            (board_clk),
-        .resetn         (resetn),
+    generate if (GAME_LCD)
+    begin: game_lcd
+        assign display_number = 6'd0;
+        assign input_valid    = 1'b0;
+        assign input_value    = 32'd0;
 
-        .display_valid  (display_valid),
-        .display_name   (display_name),
-        .display_value  (display_value),
-        .display_number (display_number),
+        lcd_game_top #(
+            .SIMULATION (SIMULATION)
+        ) u_lcd_game_top (
+            .clk                (lcd_clk),
+            .resetn             (resetn),
+            .game_car           (game_car),
+            .game_obs           (game_obs),
+            .game_bonus         (game_bonus),
+            .game_flags         (game_flags),
+            .game_score         (game_score),
+            .game_commit_toggle (game_commit_toggle),
+            .lcd_status         (lcd_status),
+            .lcd_rst            (lcd_rst),
+            .lcd_cs             (lcd_cs),
+            .lcd_rs             (lcd_rs),
+            .lcd_wr             (lcd_wr),
+            .lcd_rd             (lcd_rd),
+            .lcd_data_io        (lcd_data_io),
+            .lcd_bl_ctr         (lcd_bl_ctr),
+            .ct_int             (ct_int),
+            .ct_sda             (ct_sda),
+            .ct_scl             (ct_scl),
+            .ct_rstn            (ct_rstn)
+        );
+    end
+    else
+    begin: debug_lcd
+        assign lcd_status = 32'd0;
 
-        .input_valid    (input_valid),
-        .input_value    (input_value),
+        lcd_module u_lcd_module(
+            .clk            (lcd_clk),
+            .resetn         (resetn),
 
-        .lcd_rst        (lcd_rst),
-        .lcd_cs         (lcd_cs),
-        .lcd_rs         (lcd_rs),
-        .lcd_wr         (lcd_wr),
-        .lcd_rd         (lcd_rd),
-        .lcd_data_io    (lcd_data_io),
-        .lcd_bl_ctr     (lcd_bl_ctr),
+            .display_valid  (display_valid),
+            .display_name   (display_name),
+            .display_value  (display_value),
+            .display_number (display_number),
 
-        .ct_int         (ct_int),
-        .ct_sda         (ct_sda),
-        .ct_scl         (ct_scl),
-        .ct_rstn        (ct_rstn)
-    );
+            .input_valid    (input_valid),
+            .input_value    (input_value),
 
-    always @(posedge board_clk)
+            .lcd_rst        (lcd_rst),
+            .lcd_cs         (lcd_cs),
+            .lcd_rs         (lcd_rs),
+            .lcd_wr         (lcd_wr),
+            .lcd_rd         (lcd_rd),
+            .lcd_data_io    (lcd_data_io),
+            .lcd_bl_ctr     (lcd_bl_ctr),
+
+            .ct_int         (ct_int),
+            .ct_sda         (ct_sda),
+            .ct_scl         (ct_scl),
+            .ct_rstn        (ct_rstn)
+        );
+    end
+    endgenerate
+
+    always @(posedge lcd_clk)
     begin
         if (!resetn)
         begin

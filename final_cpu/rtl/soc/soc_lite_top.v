@@ -21,6 +21,7 @@ module soc_lite_top #(
     output wire [3 :0] btn_key_col,
     input  wire [3 :0] btn_key_row,
     input  wire [1 :0] btn_step,
+    output wire        lcd_clk,
 
     output wire [31:0] game_car,
     output wire [31:0] game_obs,
@@ -56,6 +57,8 @@ module soc_lite_top #(
 wire cpu_clk;
 wire timer_clk;
 reg  cpu_resetn;
+
+assign lcd_clk = timer_clk;
 
 always @(posedge cpu_clk)
 begin
@@ -119,6 +122,8 @@ wire        commit_fire;
 reg         debug_commit_valid_r;
 reg  [31:0] debug_commit_pc_r;
 reg  [31:0] debug_commit_inst_r;
+reg  [31:0] lcd_status_sync0;
+reg  [31:0] lcd_status_sync1;
 
 assign debug_cpu_en        = cpu_en;
 assign debug_step_count    = step_count;
@@ -346,9 +351,13 @@ begin
         debug_commit_valid_r <= 1'b0;
         debug_commit_pc_r    <= 32'b0;
         debug_commit_inst_r  <= 32'b0;
+        lcd_status_sync0     <= 32'b0;
+        lcd_status_sync1     <= 32'b0;
     end
     else
     begin
+        lcd_status_sync0 <= lcd_status;
+        lcd_status_sync1 <= lcd_status_sync0;
         debug_commit_valid_r <= 1'b0;
         if (commit_fire)
         begin
@@ -542,7 +551,7 @@ confreg #(.SIMULATION(SIMULATION)) u_confreg
     .game_flags  (game_flags),
     .game_score  (game_score),
     .game_commit_toggle(game_commit_toggle),
-    .lcd_status  (lcd_status),
+    .lcd_status  (lcd_status_sync1),
     .led         (led),
     .led_rg0     (led_rg0),
     .led_rg1     (led_rg1),
