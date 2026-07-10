@@ -8,6 +8,8 @@ module la32_decoder(
     output wire [ 4:0] rk,
     output wire [11:0] imm12,
     output wire [13:0] csr_num,
+    output wire [ 4:0] cacop_code,
+    output wire [ 4:0] invtlb_op,
 
     output wire inst_add_w,
     output wire inst_sub_w,
@@ -68,6 +70,12 @@ module la32_decoder(
     output wire inst_rdcntvl_w,
     output wire inst_rdcntvh_w,
     output wire inst_rdcntid_w,
+    output wire inst_tlbsrch,
+    output wire inst_tlbrd,
+    output wire inst_tlbwr,
+    output wire inst_tlbfill,
+    output wire inst_invtlb,
+    output wire inst_cacop,
 
     output wire inst_valid
 );
@@ -86,6 +94,8 @@ module la32_decoder(
     assign rk         = inst[14:10];
     assign imm12      = inst[21:10];
     assign csr_num    = inst[23:10];
+    assign cacop_code = inst[4:0];
+    assign invtlb_op  = inst[4:0];
 
     assign inst_add_w   = op_31_26 == 6'b000000 && func11 == 11'h020;
     assign inst_sub_w   = op_31_26 == 6'b000000 && func11 == 11'h022;
@@ -150,6 +160,13 @@ module la32_decoder(
     assign inst_rdcntvl_w = op_31_10 == 22'h000018 && rd != 5'd0;
     assign inst_rdcntid_w = op_31_10 == 22'h000018 && rd == 5'd0;
     assign inst_rdcntvh_w = op_31_10 == 22'h000019;
+
+    assign inst_tlbsrch = inst == 32'h06482800;
+    assign inst_tlbrd   = inst == 32'h06482c00;
+    assign inst_tlbwr   = inst == 32'h06483000;
+    assign inst_tlbfill = inst == 32'h06483400;
+    assign inst_invtlb  = inst[31:15] == 17'b00000110010010011;
+    assign inst_cacop   = op_31_22 == 10'b0000011000;
 
     assign inst_valid = inst_add_w | inst_sub_w | inst_slt | inst_sltu |
                         inst_nor | inst_and | inst_or | inst_xor |

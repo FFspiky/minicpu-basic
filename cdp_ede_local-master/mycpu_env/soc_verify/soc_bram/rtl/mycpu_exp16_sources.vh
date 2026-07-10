@@ -1,0 +1,6 @@
+`include "../../../myCPU/la32_decoder.v"
+`include "../../../myCPU/la32_csr.v"
+`include "../../../myCPU/la32_lsu.v"
+`include "../../../myCPU/la32_muldiv.v"
+`include "../../../myCPU/la32_single_core.v"
+`include "../../../myCPU/mycpu_top.v"
