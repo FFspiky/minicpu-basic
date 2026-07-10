@@ -7,6 +7,26 @@ create_clock -period 10.000 -name clk -waveform {0.000 5.000} [get_ports clk]
 #reset
 set_property PACKAGE_PIN Y3 [get_ports resetn]
 
+# PS/2 keyboard
+set_property PACKAGE_PIN Y2  [get_ports ps2_clk]
+set_property PACKAGE_PIN AD1 [get_ports ps2_data]
+
+# VGA RGB444 and active-low sync
+set_property PACKAGE_PIN T3 [get_ports {vga_r[0]}]
+set_property PACKAGE_PIN T2 [get_ports {vga_r[1]}]
+set_property PACKAGE_PIN U2 [get_ports {vga_r[2]}]
+set_property PACKAGE_PIN U4 [get_ports {vga_r[3]}]
+set_property PACKAGE_PIN R2 [get_ports {vga_g[0]}]
+set_property PACKAGE_PIN R1 [get_ports {vga_g[1]}]
+set_property PACKAGE_PIN U1 [get_ports {vga_g[2]}]
+set_property PACKAGE_PIN R5 [get_ports {vga_g[3]}]
+set_property PACKAGE_PIN P5 [get_ports {vga_b[0]}]
+set_property PACKAGE_PIN N1 [get_ports {vga_b[1]}]
+set_property PACKAGE_PIN P1 [get_ports {vga_b[2]}]
+set_property PACKAGE_PIN P3 [get_ports {vga_b[3]}]
+set_property PACKAGE_PIN U5 [get_ports vga_hsync]
+set_property PACKAGE_PIN U6 [get_ports vga_vsync]
+
 
 #LED
 set_property PACKAGE_PIN K23 [get_ports {led[0]}]
@@ -111,6 +131,10 @@ set_property PACKAGE_PIN V6 [get_ports {btn_step[1]}]
 
 set_property IOSTANDARD LVCMOS33 [get_ports clk]
 set_property IOSTANDARD LVCMOS33 [get_ports resetn]
+set_property IOSTANDARD LVCMOS33 [get_ports {ps2_clk ps2_data}]
+set_property PULLUP true [get_ports {ps2_clk ps2_data}]
+set_property IOSTANDARD LVCMOS33 [get_ports {vga_r[*] vga_g[*] vga_b[*]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {vga_hsync vga_vsync}]
 set_property IOSTANDARD LVCMOS33 [get_ports {led[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {led_rg0[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {led_rg1[*]}]

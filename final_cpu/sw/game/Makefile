@@ -14,7 +14,7 @@ MEM_DIR    := $(ROOT_DIR)/mem/exp23
 CFLAGS     := -march=loongarch32r -mabi=ilp32s -msoft-float \
               -ffreestanding -fno-builtin -fno-pic -fno-pie \
               -fno-asynchronous-unwind-tables -fno-unwind-tables \
-              -fno-stack-protector -Os -Wall -Wextra
+              -fno-stack-protector -Os -Wall -Wextra $(EXTRA_CFLAGS)
 ASFLAGS    := -mabi=ilp32
 LDFLAGS    := -T game.ld -nostdlib
 
@@ -49,4 +49,3 @@ install: all
 
 clean:
 	rm -rf $(OBJ_DIR)
-

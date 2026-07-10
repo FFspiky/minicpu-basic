@@ -1297,7 +1297,7 @@ module la32_pipeline_core(
                 ds_tlbr <= fs_tlbr;
             end
 
-            if (ws_redirect) begin
+            if (ws_redirect | ex_redirect) begin
                 es_valid <= 1'b0;
             end
             else if (es_allowin) begin
@@ -1383,7 +1383,7 @@ module la32_pipeline_core(
                 es_inst_valid <= ds_inst_valid;
             end
 
-            if (ws_redirect) begin
+            if (ws_redirect | ex_redirect) begin
                 es_muldiv_started <= 1'b0;
             end
             else if (es_allowin) begin

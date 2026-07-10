@@ -6,6 +6,8 @@ module tb_lcd_game_top;
     reg         resetn;
     reg  [31:0] game_car;
     reg  [31:0] game_obs;
+    reg  [31:0] game_obs1;
+    reg  [31:0] game_obs2;
     reg  [31:0] game_bonus;
     reg  [31:0] game_flags;
     reg  [31:0] game_score;
@@ -31,6 +33,7 @@ module tb_lcd_game_top;
     integer     pixel_count;
     integer     low_cycles;
     reg         first_frame_toggle;
+    integer     rotation_checks;
 
     lcd_game_top #(
         .SIMULATION (1'b1),
@@ -41,10 +44,14 @@ module tb_lcd_game_top;
         .resetn             (resetn),
         .game_car           (game_car),
         .game_obs           (game_obs),
+        .game_obs1          (game_obs1),
+        .game_obs2          (game_obs2),
         .game_bonus         (game_bonus),
         .game_flags         (game_flags),
         .game_score         (game_score),
         .game_commit_toggle (game_commit_toggle),
+        .leaderboard_bcd_scores (160'd0),
+        .leaderboard_count  (4'd0),
         .lcd_status         (lcd_status),
         .lcd_rst            (lcd_rst),
         .lcd_cs             (lcd_cs),
@@ -105,11 +112,51 @@ module tb_lcd_game_top;
         end
     end
 
+    always @(posedge clk)
+    begin
+        if (resetn && dut.init_done && dut.stream_fire &&
+            dut.stream_state == dut.S_PIXELS)
+        begin
+            if (dut.px_y == 0 && dut.px_x == 0)
+            begin
+                if (dut.rotated_render_x !== 10'd0 || dut.rotated_render_y !== 9'd479)
+                begin
+                    $display("FAIL: LCD CW top-left maps to source (%0d,%0d)",
+                             dut.rotated_render_x, dut.rotated_render_y);
+                    $fatal;
+                end
+                rotation_checks = rotation_checks + 1;
+            end
+            if (dut.px_y == 0 && dut.px_x == 2)
+            begin
+                if (dut.rotated_render_x !== 10'd0 || dut.rotated_render_y !== 9'd478)
+                begin
+                    $display("FAIL: LCD CW column progression source=(%0d,%0d)",
+                             dut.rotated_render_x, dut.rotated_render_y);
+                    $fatal;
+                end
+                rotation_checks = rotation_checks + 1;
+            end
+            if (dut.px_y == 1 && dut.px_x == 0)
+            begin
+                if (dut.rotated_render_x !== 10'd1 || dut.rotated_render_y !== 9'd479)
+                begin
+                    $display("FAIL: LCD CW row progression source=(%0d,%0d)",
+                             dut.rotated_render_x, dut.rotated_render_y);
+                    $fatal;
+                end
+                rotation_checks = rotation_checks + 1;
+            end
+        end
+    end
+
     initial
     begin
         resetn             = 1'b0;
-        game_car           = 32'h0000_0001;
+        game_car           = 32'h0000_0d21;
         game_obs           = 32'h8000_0200;
+        game_obs1          = 32'h8000_0281;
+        game_obs2          = 32'h8000_0302;
         game_bonus         = 32'h8000_0301;
         game_flags         = 32'h0000_0019;
         game_score         = 32'h0002_0010;
@@ -119,17 +166,35 @@ module tb_lcd_game_top;
         pixel_count        = 0;
         low_cycles         = 0;
         first_frame_toggle = 1'b0;
+        rotation_checks     = 0;
 
         #100;
         resetn = 1'b1;
-        #100;
-        game_car = 32'h0000_0002;
-        game_commit_toggle = ~game_commit_toggle;
-
-        wait (lcd_status[2] == game_commit_toggle);
         wait (lcd_status[0] == 1'b1);
+        wait (pixel_count >= 16);
         first_frame_toggle = lcd_status[1];
+
+        game_car = 32'h0000_0642;
+        game_obs1 = 32'h8000_0182;
+        game_commit_toggle = ~game_commit_toggle;
+        wait (lcd_status[2] == game_commit_toggle);
+
+        if (dut.render_car_lane !== 2'd1)
+        begin
+            $display("FAIL: render snapshot changed before frame boundary");
+            $fatal;
+        end
+
         wait (lcd_status[1] != first_frame_toggle);
+        @(posedge clk);
+
+        if (dut.render_car_lane !== 2'd2 || dut.render_car_y !== 9'd100 ||
+            dut.render_obs1_x !== 10'd24)
+        begin
+            $display("FAIL: pending state was not applied at frame boundary");
+            $fatal;
+        end
+
         repeat (16) @(posedge clk);
 
         if (lcd_cs !== 1'b0 || lcd_rd !== 1'b1 || lcd_bl_ctr !== 1'b1)
@@ -144,8 +209,13 @@ module tb_lcd_game_top;
                      ram_cmd_count, pixel_count, wr_count);
             $fatal;
         end
+        if (rotation_checks < 3)
+        begin
+            $display("FAIL: insufficient LCD CW rotation checks: %0d", rotation_checks);
+            $fatal;
+        end
 
-        $display("PASS: lcd_game_top init, 8080 timing, CDC ack, and pixel stream checked");
+        $display("PASS: LCD timing, frame snapshot, stream, and CW mapping checked");
         #100;
         $finish;
     end

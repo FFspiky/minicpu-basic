@@ -7,18 +7,27 @@ module racing_pixel_renderer(
     input  wire [9:0]  bg_scroll,
 
     input  wire [1:0]  car_lane,
+    input  wire [8:0]  car_y,
     input  wire [1:0]  obs_lane,
     input  wire [9:0]  obs_x,
     input  wire        obs_active,
+    input  wire [1:0]  obs1_lane,
+    input  wire [9:0]  obs1_x,
+    input  wire        obs1_active,
+    input  wire [1:0]  obs2_lane,
+    input  wire [9:0]  obs2_x,
+    input  wire        obs2_active,
     input  wire [1:0]  bonus_lane,
     input  wire [9:0]  bonus_x,
     input  wire        bonus_active,
     input  wire        game_enable,
     input  wire        paused,
     input  wire        game_over,
+    input  wire        waiting_start,
     input  wire        bg_enable,
     input  wire [15:0] score,
-    input  wire [15:0] speed_level,
+    input  wire [15:0] speed_q8,
+    input  wire [4:0]  difficulty_level,
 
     output reg  [15:0] pixel
 );
@@ -30,23 +39,27 @@ module racing_pixel_renderer(
     localparam [15:0] C_GRASS      = 16'h05C0;
     localparam [15:0] C_GRASS_DARK = 16'h03A0;
     localparam [15:0] C_RED        = 16'hF800;
+    localparam [15:0] C_GREEN      = 16'h07E0;
     localparam [15:0] C_BLUE       = 16'h001F;
     localparam [15:0] C_YELLOW     = 16'hFFE0;
     localparam [15:0] C_CAR        = 16'hFCA0;
     localparam [15:0] C_WINDOW     = 16'h07FF;
     localparam [15:0] C_PANEL      = 16'h2104;
 
-    wire [10:0] x_ext       = {1'b0, x};
-    wire [10:0] obs_x0      = {1'b0, obs_x};
-    wire [10:0] obs_x1      = {1'b0, obs_x} + 11'd44;
-    wire [10:0] bonus_x0    = {1'b0, bonus_x};
-    wire [10:0] bonus_x1    = {1'b0, bonus_x} + 11'd36;
-    wire [9:0]  road_scroll = x + bg_scroll + score[9:0] + {speed_level[4:0], 5'b0};
-    wire        game_over_text;
+    localparam [1:0] TEXT_PRESS = 2'd0;
+    localparam [1:0] TEXT_PAUSE = 2'd1;
+    localparam [1:0] TEXT_OVER  = 2'd2;
 
-    reg [8:0] car_y0;
-    reg [8:0] obs_y0;
-    reg [8:0] bonus_y0;
+    wire [10:0] x_ext = {1'b0, x};
+    wire [10:0] obs_x0 = {1'b0, obs_x};
+    wire [10:0] obs_x1 = {1'b0, obs_x} + 11'd44;
+    wire [10:0] obs1_x0 = {1'b0, obs1_x};
+    wire [10:0] obs1_x1 = {1'b0, obs1_x} + 11'd44;
+    wire [10:0] obs2_x0 = {1'b0, obs2_x};
+    wire [10:0] obs2_x1 = {1'b0, obs2_x} + 11'd44;
+    wire [10:0] bonus_x0 = {1'b0, bonus_x};
+    wire [10:0] bonus_x1 = {1'b0, bonus_x} + 11'd36;
+    wire [9:0] road_phase = x + bg_scroll;
 
     function [8:0] lane_top;
         input [1:0] lane;
@@ -59,158 +72,222 @@ module racing_pixel_renderer(
         end
     endfunction
 
-    function letter_pixel;
-        input [3:0] ch;
-        input [9:0] lx;
-        input [8:0] ly;
+    function [34:0] glyph_bitmap;
+        input [7:0] ch;
         begin
             case (ch)
-                4'd0: letter_pixel = (ly < 9'd6) || (ly >= 9'd42) || (lx < 10'd6) ||
-                                      ((lx >= 10'd22) && (ly >= 9'd24)) ||
-                                      ((ly >= 9'd22 && ly < 9'd28) && lx >= 10'd14); // G
-                4'd1: letter_pixel = (ly < 9'd6) || (ly >= 9'd22 && ly < 9'd28) ||
-                                      (lx < 10'd6) || (lx >= 10'd22); // A
-                4'd2: letter_pixel = (lx < 10'd6) || (lx >= 10'd22) ||
-                                      ((ly < 9'd24) &&
-                                       ((lx >= 10'd6 && lx < 10'd10) || (lx >= 10'd18 && lx < 10'd22))); // M
-                4'd3: letter_pixel = (lx < 10'd6) || (ly < 9'd6) ||
-                                      (ly >= 9'd22 && ly < 9'd28) || (ly >= 9'd42); // E
-                4'd4: letter_pixel = (lx < 10'd6) || (lx >= 10'd22) ||
-                                      (ly < 9'd6) || (ly >= 9'd42); // O
-                4'd5: letter_pixel = ((ly < 9'd34) && ((lx < 10'd6) || (lx >= 10'd22))) ||
-                                      ((ly >= 9'd34) && lx >= 10'd10 && lx < 10'd18); // V
-                4'd6: letter_pixel = (lx < 10'd6) || (ly < 9'd6) ||
-                                      (ly >= 9'd22 && ly < 9'd28) ||
-                                      ((lx >= 10'd22) && ly < 9'd28) ||
-                                      ((ly >= 9'd28) && (lx >= ly - 9'd8) && (lx < ly)); // R
-                default: letter_pixel = 1'b0;
+                8'h41: glyph_bitmap = {5'b01110,5'b10001,5'b10001,5'b11111,5'b10001,5'b10001,5'b10001}; // A
+                8'h45: glyph_bitmap = {5'b11111,5'b10000,5'b10000,5'b11110,5'b10000,5'b10000,5'b11111}; // E
+                8'h47: glyph_bitmap = {5'b01110,5'b10001,5'b10000,5'b10111,5'b10001,5'b10001,5'b01110}; // G
+                8'h4B: glyph_bitmap = {5'b10001,5'b10010,5'b10100,5'b11000,5'b10100,5'b10010,5'b10001}; // K
+                8'h4D: glyph_bitmap = {5'b10001,5'b11011,5'b10101,5'b10101,5'b10001,5'b10001,5'b10001}; // M
+                8'h4F: glyph_bitmap = {5'b01110,5'b10001,5'b10001,5'b10001,5'b10001,5'b10001,5'b01110}; // O
+                8'h50: glyph_bitmap = {5'b11110,5'b10001,5'b10001,5'b11110,5'b10000,5'b10000,5'b10000}; // P
+                8'h52: glyph_bitmap = {5'b11110,5'b10001,5'b10001,5'b11110,5'b10100,5'b10010,5'b10001}; // R
+                8'h53: glyph_bitmap = {5'b01111,5'b10000,5'b10000,5'b01110,5'b00001,5'b00001,5'b11110}; // S
+                8'h55: glyph_bitmap = {5'b10001,5'b10001,5'b10001,5'b10001,5'b10001,5'b10001,5'b01110}; // U
+                8'h56: glyph_bitmap = {5'b10001,5'b10001,5'b10001,5'b10001,5'b10001,5'b01010,5'b00100}; // V
+                8'h59: glyph_bitmap = {5'b10001,5'b01010,5'b00100,5'b00100,5'b00100,5'b00100,5'b00100}; // Y
+                default: glyph_bitmap = 35'd0;
             endcase
         end
     endfunction
 
-    function game_over_letter;
-        input [9:0] tx;
-        input [8:0] ty;
+    function [7:0] message_char;
+        input [1:0] mode;
+        input [3:0] index;
         begin
-            game_over_letter =
-                ((tx >= 10'd211 && tx < 10'd239) && letter_pixel(4'd0, tx - 10'd211, ty - 9'd216)) ||
-                ((tx >= 10'd253 && tx < 10'd281) && letter_pixel(4'd1, tx - 10'd253, ty - 9'd216)) ||
-                ((tx >= 10'd295 && tx < 10'd323) && letter_pixel(4'd2, tx - 10'd295, ty - 9'd216)) ||
-                ((tx >= 10'd337 && tx < 10'd365) && letter_pixel(4'd3, tx - 10'd337, ty - 9'd216)) ||
-                ((tx >= 10'd421 && tx < 10'd449) && letter_pixel(4'd4, tx - 10'd421, ty - 9'd216)) ||
-                ((tx >= 10'd463 && tx < 10'd491) && letter_pixel(4'd5, tx - 10'd463, ty - 9'd216)) ||
-                ((tx >= 10'd505 && tx < 10'd533) && letter_pixel(4'd3, tx - 10'd505, ty - 9'd216)) ||
-                ((tx >= 10'd547 && tx < 10'd575) && letter_pixel(4'd6, tx - 10'd547, ty - 9'd216));
+            message_char = 8'h20;
+            case (mode)
+                TEXT_PRESS:
+                    case (index)
+                        4'd0: message_char = 8'h50;
+                        4'd1: message_char = 8'h52;
+                        4'd2: message_char = 8'h45;
+                        4'd3: message_char = 8'h53;
+                        4'd4: message_char = 8'h53;
+                        4'd6: message_char = 8'h4B;
+                        4'd7: message_char = 8'h45;
+                        4'd8: message_char = 8'h59;
+                        default: message_char = 8'h20;
+                    endcase
+                TEXT_PAUSE:
+                    case (index)
+                        4'd0: message_char = 8'h50;
+                        4'd1: message_char = 8'h41;
+                        4'd2: message_char = 8'h55;
+                        4'd3: message_char = 8'h53;
+                        4'd4: message_char = 8'h45;
+                        default: message_char = 8'h20;
+                    endcase
+                default:
+                    case (index)
+                        4'd0: message_char = 8'h47;
+                        4'd1: message_char = 8'h41;
+                        4'd2: message_char = 8'h4D;
+                        4'd3: message_char = 8'h45;
+                        4'd5: message_char = 8'h4F;
+                        4'd6: message_char = 8'h56;
+                        4'd7: message_char = 8'h45;
+                        4'd8: message_char = 8'h52;
+                        default: message_char = 8'h20;
+                    endcase
+            endcase
         end
     endfunction
 
-    assign game_over_text = game_over && y >= 9'd216 && y < 9'd264 &&
-                            x >= 10'd211 && x < 10'd575 && game_over_letter(x, y);
+    function glyph_pixel;
+        input [7:0] ch;
+        input [2:0] col;
+        input [2:0] row;
+        reg [34:0] bitmap;
+        integer bit_index;
+        begin
+            bitmap = glyph_bitmap(ch);
+            bit_index = 34 - row * 5 - col;
+            if (col < 3'd5 && row < 3'd7)
+                glyph_pixel = bitmap[bit_index];
+            else
+                glyph_pixel = 1'b0;
+        end
+    endfunction
+
+    wire [8:0] obs_y0 = lane_top(obs_lane) + 9'd8;
+    wire [8:0] obs1_y0 = lane_top(obs1_lane) + 9'd8;
+    wire [8:0] obs2_y0 = lane_top(obs2_lane) + 9'd8;
+    wire [8:0] bonus_y0 = lane_top(bonus_lane) + 9'd12;
+
+    reg [1:0] text_mode;
+    reg [8:0] text_start_y;
+    reg [3:0] text_length;
+    reg [15:0] text_color;
+    reg text_active;
+    reg text_pixel;
+    reg [8:0] text_dy;
+    reg [3:0] text_slot;
+    reg [4:0] text_local_y;
+    reg [2:0] glyph_col;
+    reg [2:0] glyph_row;
+    reg [7:0] glyph_char;
 
     always @(*)
     begin
-        car_y0   = lane_top(car_lane);
-        obs_y0   = lane_top(obs_lane) + 9'd8;
-        bonus_y0 = lane_top(bonus_lane) + 9'd12;
+        text_mode = TEXT_PRESS;
+        text_start_y = 9'd96;
+        text_length = 4'd9;
+        text_color = C_GREEN;
+        text_active = 1'b0;
 
+        if (game_over)
+        begin
+            text_mode = TEXT_OVER;
+            text_start_y = 9'd96;
+            text_length = 4'd9;
+            text_color = C_RED;
+            text_active = 1'b1;
+        end
+        else if (paused)
+        begin
+            text_mode = TEXT_PAUSE;
+            text_start_y = 9'd160;
+            text_length = 4'd5;
+            text_color = C_YELLOW;
+            text_active = 1'b1;
+        end
+        else if (waiting_start)
+        begin
+            text_mode = TEXT_PRESS;
+            text_start_y = 9'd96;
+            text_length = 4'd9;
+            text_color = C_GREEN;
+            text_active = 1'b1;
+        end
+
+        text_pixel = 1'b0;
+        text_dy = y - text_start_y;
+        text_slot = text_dy[8:5];
+        text_local_y = text_dy[4:0];
+        glyph_col = text_local_y[4:2];
+        glyph_row = 3'd6 - ((x - 10'd386) >> 2);
+        glyph_char = message_char(text_mode, text_slot);
+
+        if (text_active && x >= 10'd386 && x < 10'd414 &&
+            y >= text_start_y && text_slot < text_length &&
+            text_local_y < 5'd20)
+            text_pixel = glyph_pixel(glyph_char, glyph_col, glyph_row);
+    end
+
+    always @(*)
+    begin
         pixel = C_BLACK;
 
         if (game_enable)
         begin
             if (!bg_enable)
-            begin
                 pixel = C_BLACK;
-            end
             else if (x < 10'd24 || x > 10'd775)
-            begin
-                pixel = road_scroll[5] ? C_GRASS : C_GRASS_DARK;
-            end
+                pixel = C_GRASS;
             else
+                pixel = C_ROAD_DARK;
+
+            if ((y >= 9'd158 && y <= 9'd162) ||
+                (y >= 9'd318 && y <= 9'd322))
             begin
-                pixel = road_scroll[7] ? C_ROAD_DARK : C_ROAD_LITE;
+                // Move only the dashed lane markers.  The road itself stays
+                // stable, avoiding full-screen brightness pulses at high speed.
+                pixel = (road_phase[6:5] == 2'b00) ? C_WHITE : C_ROAD_DARK;
             end
 
-            if ((y >= 9'd158 && y <= 9'd162) || (y >= 9'd318 && y <= 9'd322))
+            if (x >= 10'd100 && x <= 10'd180 &&
+                y >= car_y && y <= car_y + 9'd60)
             begin
-                if (road_scroll[6])
-                begin
-                    pixel = C_WHITE;
-                end
-            end
-
-            if (x >= 10'd100 && x <= 10'd180 && y >= car_y0 && y <= car_y0 + 9'd60)
-            begin
-                if (((x >= 10'd100 && x <= 10'd106) || (x >= 10'd174 && x <= 10'd180)) &&
-                    y >= car_y0 + 9'd8 && y <= car_y0 + 9'd52)
-                begin
+                if (((x >= 10'd100 && x <= 10'd106) ||
+                     (x >= 10'd174 && x <= 10'd180)) &&
+                    y >= car_y + 9'd8 && y <= car_y + 9'd52)
                     pixel = C_BLACK;
-                end
-                else if (x >= 10'd148 && x <= 10'd172 && y >= car_y0 + 9'd20 && y <= car_y0 + 9'd40)
-                begin
+                else if (x >= 10'd148 && x <= 10'd172 &&
+                         y >= car_y + 9'd20 && y <= car_y + 9'd40)
                     pixel = C_WINDOW;
-                end
                 else if (x >= 10'd106 && x <= 10'd174)
-                begin
                     pixel = C_CAR;
-                end
             end
 
             if (obs_active && x_ext >= obs_x0 && x_ext <= obs_x1 &&
                 y >= obs_y0 && y <= obs_y0 + 9'd44)
-            begin
-                if (x_ext == obs_x0 || x_ext == obs_x1 || y == obs_y0 || y == obs_y0 + 9'd44)
-                begin
-                    pixel = C_WHITE;
-                end
-                else
-                begin
-                    pixel = C_BLUE;
-                end
-            end
+                pixel = (x_ext == obs_x0 || x_ext == obs_x1 ||
+                         y == obs_y0 || y == obs_y0 + 9'd44) ? C_WHITE : C_BLUE;
+
+            if (obs1_active && x_ext >= obs1_x0 && x_ext <= obs1_x1 &&
+                y >= obs1_y0 && y <= obs1_y0 + 9'd44)
+                pixel = (x_ext == obs1_x0 || x_ext == obs1_x1 ||
+                         y == obs1_y0 || y == obs1_y0 + 9'd44) ? C_WHITE : C_BLUE;
+
+            if (obs2_active && x_ext >= obs2_x0 && x_ext <= obs2_x1 &&
+                y >= obs2_y0 && y <= obs2_y0 + 9'd44)
+                pixel = (x_ext == obs2_x0 || x_ext == obs2_x1 ||
+                         y == obs2_y0 || y == obs2_y0 + 9'd44) ? C_WHITE : C_BLUE;
 
             if (bonus_active && x_ext >= bonus_x0 && x_ext <= bonus_x1 &&
-                y >= bonus_y0 && y <= bonus_y0 + 9'd36)
+                y >= bonus_y0 && y <= bonus_y0 + 9'd36 &&
+                (x_ext - bonus_x0) + (y - bonus_y0) > 11'd12 &&
+                (x_ext - bonus_x0) + (y - bonus_y0) < 11'd60)
+                pixel = C_YELLOW;
+
+            if (text_active && x >= 10'd350 && x <= 10'd450 &&
+                y >= 9'd80 && y <= 9'd400)
             begin
-                if ((x_ext - bonus_x0) + (y - bonus_y0) > 11'd12 &&
-                    (x_ext - bonus_x0) + (y - bonus_y0) < 11'd60)
-                begin
-                    pixel = C_YELLOW;
-                end
+                if (x == 10'd350 || x == 10'd450 || y == 9'd80 || y == 9'd400)
+                    pixel = C_WHITE;
+                else
+                    pixel = C_PANEL;
             end
 
-            if (paused || game_over)
-            begin
-                if (x >= 10'd200 && x <= 10'd600 && y >= 9'd160 && y <= 9'd320)
-                begin
-                    if (x == 10'd200 || x == 10'd600 || y == 9'd160 || y == 9'd320)
-                    begin
-                        pixel = C_WHITE;
-                    end
-                    else
-                    begin
-                        pixel = C_PANEL;
-                    end
-                end
-
-                if (paused && !game_over)
-                begin
-                    if ((x >= 10'd330 && x <= 10'd370 && y >= 9'd200 && y <= 9'd280) ||
-                        (x >= 10'd430 && x <= 10'd470 && y >= 9'd200 && y <= 9'd280))
-                    begin
-                        pixel = C_YELLOW;
-                    end
-                end
-
-                if (game_over)
-                begin
-                    if (game_over_text)
-                    begin
-                        pixel = C_RED;
-                    end
-                end
-            end
+            if (text_pixel)
+                pixel = text_color;
         end
     end
+
+    wire unused_ok = &{1'b0, car_lane, score[0], speed_q8[0], difficulty_level[0]};
 
 endmodule
 

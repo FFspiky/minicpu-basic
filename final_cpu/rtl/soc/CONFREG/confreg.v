@@ -62,6 +62,8 @@ THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 `define GAME_SCORE_ADDR  16'h9040   //32'hbfaf_9040
 `define GAME_COMMIT_ADDR 16'h9050   //32'hbfaf_9050
 `define LCD_STATUS_ADDR  16'h9060   //32'hbfaf_9060
+`define GAME_OBS1_ADDR   16'h9070   //32'hbfaf_9070
+`define GAME_OBS2_ADDR   16'h9080   //32'hbfaf_9080
 
 `define LED_ADDR       16'hf020   //32'hbfaf_f020
 `define LED_RG0_ADDR   16'hf030   //32'hbfaf_f030
@@ -94,6 +96,8 @@ module confreg
     // game/LCD MMIO state
     output wire [31:0] game_car,
     output wire [31:0] game_obs,
+    output wire [31:0] game_obs1,
+    output wire [31:0] game_obs2,
     output wire [31:0] game_bonus,
     output wire [31:0] game_flags,
     output wire [31:0] game_score,
@@ -109,7 +113,8 @@ module confreg
     input  wire [7 :0] switch,
     output wire [3 :0] btn_key_col,
     input  wire [3 :0] btn_key_row,
-    input  wire [1 :0] btn_step
+    input  wire [1 :0] btn_step,
+    input  wire [15:0] external_key_state
 );
     reg  [31:0] cr0;
     reg  [31:0] cr1;
@@ -122,6 +127,8 @@ module confreg
 
     reg  [31:0] game_car_data;
     reg  [31:0] game_obs_data;
+    reg  [31:0] game_obs1_data;
+    reg  [31:0] game_obs2_data;
     reg  [31:0] game_bonus_data;
     reg  [31:0] game_flags_data;
     reg  [31:0] game_score_data;
@@ -146,6 +153,8 @@ module confreg
 
     assign game_car           = game_car_data;
     assign game_obs           = game_obs_data;
+    assign game_obs1          = game_obs1_data;
+    assign game_obs2          = game_obs2_data;
     assign game_bonus         = game_bonus_data;
     assign game_flags         = game_flags_data;
     assign game_score         = game_score_data;
@@ -178,6 +187,8 @@ module confreg
                 `GAME_SCORE_ADDR  : conf_rdata_reg <= game_score_data;
                 `GAME_COMMIT_ADDR : conf_rdata_reg <= game_commit_data;
                 `LCD_STATUS_ADDR  : conf_rdata_reg <= lcd_status;
+                `GAME_OBS1_ADDR   : conf_rdata_reg <= game_obs1_data;
+                `GAME_OBS2_ADDR   : conf_rdata_reg <= game_obs2_data;
                 `LED_ADDR      : conf_rdata_reg <= led_data     ;
                 `LED_RG0_ADDR  : conf_rdata_reg <= led_rg0_data ;
                 `LED_RG1_ADDR  : conf_rdata_reg <= led_rg1_data ;
@@ -211,6 +222,8 @@ wire write_cr6 = conf_write & (conf_addr[15:0]==`CR6_ADDR);
 wire write_cr7 = conf_write & (conf_addr[15:0]==`CR7_ADDR);
 wire write_game_car    = conf_write & (conf_addr[15:0]==`GAME_CAR_ADDR);
 wire write_game_obs    = conf_write & (conf_addr[15:0]==`GAME_OBS_ADDR);
+wire write_game_obs1   = conf_write & (conf_addr[15:0]==`GAME_OBS1_ADDR);
+wire write_game_obs2   = conf_write & (conf_addr[15:0]==`GAME_OBS2_ADDR);
 wire write_game_bonus  = conf_write & (conf_addr[15:0]==`GAME_BONUS_ADDR);
 wire write_game_flags  = conf_write & (conf_addr[15:0]==`GAME_FLAGS_ADDR);
 wire write_game_score  = conf_write & (conf_addr[15:0]==`GAME_SCORE_ADDR);
@@ -241,10 +254,12 @@ always @(posedge clk)
 begin
     if(!resetn)
     begin
-        game_car_data       <= 32'h0000_0001;
-        game_obs_data       <= 32'h8000_31f0;
+        game_car_data       <= 32'h0000_0d21;
+        game_obs_data       <= 32'h0000_31f0;
+        game_obs1_data      <= 32'h0000_31f1;
+        game_obs2_data      <= 32'h0000_31f2;
         game_bonus_data     <= 32'h0000_31f1;
-        game_flags_data     <= 32'h0000_0019;
+        game_flags_data     <= 32'h0000_0039;
         game_score_data     <= 32'h0000_0000;
         game_commit_data    <= 32'h0000_0000;
         game_commit_toggle_r <= 1'b0;
@@ -258,6 +273,14 @@ begin
         if(write_game_obs)
         begin
             game_obs_data <= conf_wdata;
+        end
+        if(write_game_obs1)
+        begin
+            game_obs1_data <= conf_wdata;
+        end
+        if(write_game_obs2)
+        begin
+            game_obs2_data <= conf_wdata;
         end
         if(write_game_bonus)
         begin
@@ -418,7 +441,8 @@ end
 //led display
 //led_data[31:0]
 wire write_led = conf_write & (conf_addr[15:0]==`LED_ADDR);
-assign led = led_data[15:0];
+// The board's 16 monochrome LEDs are active low.
+assign led = ~led_data[15:0];
 always @(posedge clk)
 begin
     if(!resetn)
@@ -446,7 +470,23 @@ assign sw_inter_data = {16'd0,
 //------------------------------{btn key}begin---------------------------//
 //btn key data
 reg [15:0] btn_key_r;
-assign btn_key_data = {16'd0,btn_key_r};
+reg [15:0] external_key_sync0;
+reg [15:0] external_key_sync1;
+assign btn_key_data = {16'd0, (btn_key_r | external_key_sync1)};
+
+always @(posedge clk)
+begin
+    if (!resetn)
+    begin
+        external_key_sync0 <= 16'd0;
+        external_key_sync1 <= 16'd0;
+    end
+    else
+    begin
+        external_key_sync0 <= external_key_state;
+        external_key_sync1 <= external_key_sync0;
+    end
+end
 
 //state machine
 reg  [2:0] state;

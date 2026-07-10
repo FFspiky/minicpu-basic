@@ -21,10 +21,13 @@ module soc_lite_top #(
     output wire [3 :0] btn_key_col,
     input  wire [3 :0] btn_key_row,
     input  wire [1 :0] btn_step,
+    input  wire [15:0] external_key_state,
     output wire        lcd_clk,
 
     output wire [31:0] game_car,
     output wire [31:0] game_obs,
+    output wire [31:0] game_obs1,
+    output wire [31:0] game_obs2,
     output wire [31:0] game_bonus,
     output wire [31:0] game_flags,
     output wire [31:0] game_score,
@@ -547,6 +550,8 @@ confreg #(.SIMULATION(SIMULATION)) u_confreg
     .conf_rdata  (conf_rdata),
     .game_car    (game_car),
     .game_obs    (game_obs),
+    .game_obs1   (game_obs1),
+    .game_obs2   (game_obs2),
     .game_bonus  (game_bonus),
     .game_flags  (game_flags),
     .game_score  (game_score),
@@ -561,7 +566,8 @@ confreg #(.SIMULATION(SIMULATION)) u_confreg
     .switch      (switch),
     .btn_key_col (btn_key_col),
     .btn_key_row (btn_key_row),
-    .btn_step    (btn_step)
+    .btn_step    (btn_step),
+    .external_key_state(external_key_state)
 );
 
 endmodule

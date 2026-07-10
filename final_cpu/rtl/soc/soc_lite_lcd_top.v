@@ -22,6 +22,15 @@ module soc_lite_lcd_top #(
     input  wire [3 :0] btn_key_row,
     input  wire [1 :0] btn_step,
 
+    input  wire        ps2_clk,
+    input  wire        ps2_data,
+
+    output wire        vga_hsync,
+    output wire        vga_vsync,
+    output wire [3:0]  vga_r,
+    output wire [3:0]  vga_g,
+    output wire [3:0]  vga_b,
+
     output wire        lcd_rst,
     output wire        lcd_cs,
     output wire        lcd_rs,
@@ -61,11 +70,59 @@ module soc_lite_lcd_top #(
 
     wire [31:0] game_car;
     wire [31:0] game_obs;
+    wire [31:0] game_obs1;
+    wire [31:0] game_obs2;
     wire [31:0] game_bonus;
     wire [31:0] game_flags;
     wire [31:0] game_score;
     wire        game_commit_toggle;
     wire [31:0] lcd_status;
+    wire [15:0] ps2_game_keys;
+    wire [7:0]  ps2_last_scan_code;
+    wire        ps2_scan_valid;
+    wire [127:0] leaderboard_scores;
+    wire [159:0] leaderboard_bcd_scores;
+    wire [3:0]   leaderboard_count;
+
+    ps2_game_keyboard u_ps2_game_keyboard (
+        .clk            (clk),
+        .resetn         (resetn),
+        .ps2_clk        (ps2_clk),
+        .ps2_data       (ps2_data),
+        .game_keys      (ps2_game_keys),
+        .last_scan_code (ps2_last_scan_code),
+        .scan_valid     (ps2_scan_valid)
+    );
+
+    game_leaderboard u_game_leaderboard (
+        .clk                (lcd_clk),
+        .resetn             (resetn),
+        .game_flags         (game_flags),
+        .game_score         (game_score),
+        .game_score_bcd     (num_data),
+        .game_commit_toggle (game_commit_toggle),
+        .scores_packed      (leaderboard_scores),
+        .scores_bcd_packed  (leaderboard_bcd_scores),
+        .score_count        (leaderboard_count)
+    );
+
+    vga_game_top u_vga_game_top (
+        .clk                (lcd_clk),
+        .resetn             (resetn),
+        .game_car           (game_car),
+        .game_obs           (game_obs),
+        .game_obs1          (game_obs1),
+        .game_obs2          (game_obs2),
+        .game_bonus         (game_bonus),
+        .game_flags         (game_flags),
+        .game_score         (game_score),
+        .game_commit_toggle (game_commit_toggle),
+        .vga_hsync          (vga_hsync),
+        .vga_vsync          (vga_vsync),
+        .vga_r              (vga_r),
+        .vga_g              (vga_g),
+        .vga_b              (vga_b)
+    );
 
     soc_lite_top #(
         .SIMULATION  (SIMULATION),
@@ -85,10 +142,13 @@ module soc_lite_lcd_top #(
         .btn_key_col         (btn_key_col),
         .btn_key_row         (btn_key_row),
         .btn_step            (btn_step),
+        .external_key_state  (ps2_game_keys),
         .lcd_clk             (lcd_clk),
 
         .game_car            (game_car),
         .game_obs            (game_obs),
+        .game_obs1           (game_obs1),
+        .game_obs2           (game_obs2),
         .game_bonus          (game_bonus),
         .game_flags          (game_flags),
         .game_score          (game_score),
@@ -156,16 +216,21 @@ module soc_lite_lcd_top #(
         assign input_value    = 32'd0;
 
         lcd_game_top #(
-            .SIMULATION (SIMULATION)
+            .SIMULATION       (SIMULATION),
+            .LEADERBOARD_MODE (1)
         ) u_lcd_game_top (
             .clk                (lcd_clk),
             .resetn             (resetn),
             .game_car           (game_car),
             .game_obs           (game_obs),
+            .game_obs1          (game_obs1),
+            .game_obs2          (game_obs2),
             .game_bonus         (game_bonus),
             .game_flags         (game_flags),
             .game_score         (game_score),
             .game_commit_toggle (game_commit_toggle),
+            .leaderboard_bcd_scores (leaderboard_bcd_scores),
+            .leaderboard_count  (leaderboard_count),
             .lcd_status         (lcd_status),
             .lcd_rst            (lcd_rst),
             .lcd_cs             (lcd_cs),

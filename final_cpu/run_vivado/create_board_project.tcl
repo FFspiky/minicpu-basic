@@ -160,3 +160,8 @@ set_property top soc_lite_lcd_top [current_fileset]
 set_property top tb_lcd_top [get_filesets sim_1]
 update_compile_order -fileset sources_1
 update_compile_order -fileset sim_1
+
+# Vivado 2019.2 has no in-place save_project command. Closing and reopening
+# writes the updated source-set to the existing .xpr without creating a copy.
+close_project
+open_project $project_file
