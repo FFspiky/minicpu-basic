@@ -1,6 +1,17 @@
+`default_nettype wire
+`include "../../../myCPU/cla4.v"
+`include "../../../myCPU/cla16.v"
+`include "../../../myCPU/cla32.v"
+`include "../../../myCPU/alu.v"
+`include "../../../myCPU/branch_unit.v"
+`include "../../../myCPU/imm_extend.v"
+`include "../../../myCPU/cpu_control.v"
+`include "../../../myCPU/regfile.v"
 `include "../../../myCPU/la32_decoder.v"
 `include "../../../myCPU/la32_csr.v"
 `include "../../../myCPU/la32_lsu.v"
+`include "../../../myCPU/la32_exception_ctrl.v"
 `include "../../../myCPU/la32_muldiv.v"
 `include "../../../myCPU/la32_single_core.v"
 `include "../../../myCPU/mycpu_top.v"
+`default_nettype none

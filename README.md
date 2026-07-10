@@ -31,10 +31,10 @@ D:\Vivado\Vivado\2019.2\bin\vivado.bat
 
 ## 生成功能测试程序
 
-默认生成 EXP6 到单周期环境：
+默认生成 EXP16 到单周期环境：
 
 ```powershell
-wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh
+wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh 16 cdp_ede_local-master
 ```
 
 指定实验号和环境目录：
@@ -154,7 +154,8 @@ D:\CPU_DESIGN\cdp_ede_pipeline\mycpu_env\soc_verify\soc_dram\run_vivado\project_
 - `cdp_ede_local-master/` is the single-cycle CPU environment.
 - Single-cycle board top now uses BRAM: `D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_bram\rtl\soc_lite_lcd_top.v`.
 - `soc_dram` is kept as a compatibility/reference environment.
-- Single-cycle acceptance uses EXP6. EXP8/EXP9 are reserved for the pipeline no-NOP hazard validation path.
+- Single-cycle acceptance uses EXP16 (`n1`~`n58`). EXP8/EXP9 are reserved for the pipeline no-NOP hazard validation path.
+- The single-cycle datapath was refactored to match the reviewed diagram: `cpu_control`, `imm_extend`, `regfile`, `alu`, `branch_unit`, `la32_lsu`, `la32_csr`, `la32_exception_ctrl`, and `la32_muldiv` are explicit modules. The review/correction notes are in `cdp_ede_local-master/mycpu_env/myCPU/SINGLE_CYCLE_DATAPATH_AUDIT.md`.
 - Single-cycle BRAM trace script:
 
 ```powershell

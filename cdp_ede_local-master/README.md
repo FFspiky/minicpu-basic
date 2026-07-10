@@ -10,7 +10,7 @@
 常用命令：
 
 ```powershell
-wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh 6 cdp_ede_local-master
+wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh 16 cdp_ede_local-master
 & 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\gettrace\run_gettrace_sim.tcl'
 & 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\run_soc_dram_sim.tcl'
 ```
@@ -19,9 +19,11 @@ wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh 6 cdp_e
 
 - `soc_bram` is now the main single-cycle trace and board environment.
 - `soc_dram` remains as a compatibility/reference environment.
-- The CPU keeps the single-cycle datapath, with BRAM request/response alignment and one extra wait cycle for `ld.w`.
-- Default and acceptance testing for this single-cycle environment is EXP6, not EXP9.
+- The CPU follows the reviewed single-cycle datapath: decoder, control, immediate extension, two-read-port register file, ALU, branch unit, LSU, CSR/exception controller, counter, and iterative mul/div unit.
+- Ordinary EXP16 instructions retire in one clock; synchronous BRAM loads use one explicit wait state and iterative multiply/divide operations hold the core until completion.
+- Default and acceptance testing for this single-cycle environment is EXP16 (`n1`~`n58`).
 - EXP8/EXP9 are for pipeline no-NOP hazard validation; an EXP9 log in this directory is not evidence of pipeline-style hazard handling.
+- The datapath review and known diagram corrections are documented in `mycpu_env/myCPU/SINGLE_CYCLE_DATAPATH_AUDIT.md`.
 - BRAM trace simulation:
 
 ```powershell
