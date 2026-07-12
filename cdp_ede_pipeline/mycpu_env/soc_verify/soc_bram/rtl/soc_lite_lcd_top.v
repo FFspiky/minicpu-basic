@@ -128,6 +128,29 @@ module soc_lite_lcd_top #(
     wire        input_valid;
     wire [31:0] input_value;
 
+    reg  [31:0] debug_wb_pc_lcd;
+    reg  [31:0] debug_inst_lcd;
+    reg  [31:0] debug_step_count_lcd;
+    reg  [31:0] debug_cycle_count_lcd;
+    reg  [31:0] debug_commit_pc_lcd;
+    reg  [31:0] debug_commit_inst_lcd;
+    reg  [31:0] debug_fetch_pc_lcd;
+    reg  [3 :0] debug_pipe_valid_lcd;
+    reg  [2 :0] debug_pipe_hazard_lcd;
+    reg         debug_last_wb_valid_lcd;
+    reg  [31:0] debug_last_wb_pc_lcd;
+    reg  [4 :0] debug_last_wb_wnum_lcd;
+    reg  [31:0] debug_last_wb_wdata_lcd;
+    reg         debug_mode_run_lcd;
+    reg         debug_run_active_lcd;
+    reg         debug_run_done_lcd;
+    reg  [31:0] num_data_lcd;
+    reg  [7 :0] switch_lcd;
+
+    reg         display_valid_next;
+    reg  [39:0] display_name_next;
+    reg  [31:0] display_value_next;
+
     lcd_module u_lcd_module(
         .clk            (board_clk),
         .resetn         (resetn),
@@ -154,122 +177,174 @@ module soc_lite_lcd_top #(
         .ct_rstn        (ct_rstn)
     );
 
-    wire [3:0] last_wb_ones_value = (debug_last_wb_wnum >= 5'd30) ? (debug_last_wb_wnum - 5'd30) :
-                                    (debug_last_wb_wnum >= 5'd20) ? (debug_last_wb_wnum - 5'd20) :
-                                    (debug_last_wb_wnum >= 5'd10) ? (debug_last_wb_wnum - 5'd10) :
-                                                                    debug_last_wb_wnum[3:0];
-    wire [7:0] last_wb_tens_char  = (debug_last_wb_wnum >= 5'd30) ? 8'h33 :
-                                    (debug_last_wb_wnum >= 5'd20) ? 8'h32 :
-                                    (debug_last_wb_wnum >= 5'd10) ? 8'h31 :
+    always @(posedge board_clk)
+    begin
+        if (!resetn)
+        begin
+            debug_wb_pc_lcd          <= 32'd0;
+            debug_inst_lcd           <= 32'd0;
+            debug_step_count_lcd     <= 32'd0;
+            debug_cycle_count_lcd    <= 32'd0;
+            debug_commit_pc_lcd      <= 32'd0;
+            debug_commit_inst_lcd    <= 32'd0;
+            debug_fetch_pc_lcd       <= 32'd0;
+            debug_pipe_valid_lcd     <= 4'd0;
+            debug_pipe_hazard_lcd    <= 3'd0;
+            debug_last_wb_valid_lcd  <= 1'b0;
+            debug_last_wb_pc_lcd     <= 32'd0;
+            debug_last_wb_wnum_lcd   <= 5'd0;
+            debug_last_wb_wdata_lcd  <= 32'd0;
+            debug_mode_run_lcd       <= 1'b0;
+            debug_run_active_lcd     <= 1'b0;
+            debug_run_done_lcd       <= 1'b0;
+            num_data_lcd             <= 32'd0;
+            switch_lcd               <= 8'd0;
+            display_valid            <= 1'b0;
+            display_name             <= 40'd0;
+            display_value            <= 32'd0;
+        end
+        else
+        begin
+            debug_wb_pc_lcd          <= debug_wb_pc;
+            debug_inst_lcd           <= debug_inst;
+            debug_step_count_lcd     <= debug_step_count;
+            debug_cycle_count_lcd    <= debug_cycle_count;
+            debug_commit_pc_lcd      <= debug_commit_pc;
+            debug_commit_inst_lcd    <= debug_commit_inst;
+            debug_fetch_pc_lcd       <= debug_fetch_pc;
+            debug_pipe_valid_lcd     <= debug_pipe_valid;
+            debug_pipe_hazard_lcd    <= debug_pipe_hazard;
+            debug_last_wb_valid_lcd  <= debug_last_wb_valid;
+            debug_last_wb_pc_lcd     <= debug_last_wb_pc;
+            debug_last_wb_wnum_lcd   <= debug_last_wb_wnum;
+            debug_last_wb_wdata_lcd  <= debug_last_wb_wdata;
+            debug_mode_run_lcd       <= debug_mode_run;
+            debug_run_active_lcd     <= debug_run_active;
+            debug_run_done_lcd       <= debug_run_done;
+            num_data_lcd             <= num_data;
+            switch_lcd               <= switch;
+            display_valid            <= display_valid_next;
+            display_name             <= display_name_next;
+            display_value            <= display_value_next;
+        end
+    end
+
+    wire [3:0] last_wb_ones_value = (debug_last_wb_wnum_lcd >= 5'd30) ? (debug_last_wb_wnum_lcd - 5'd30) :
+                                    (debug_last_wb_wnum_lcd >= 5'd20) ? (debug_last_wb_wnum_lcd - 5'd20) :
+                                    (debug_last_wb_wnum_lcd >= 5'd10) ? (debug_last_wb_wnum_lcd - 5'd10) :
+                                                                        debug_last_wb_wnum_lcd[3:0];
+    wire [7:0] last_wb_tens_char  = (debug_last_wb_wnum_lcd >= 5'd30) ? 8'h33 :
+                                    (debug_last_wb_wnum_lcd >= 5'd20) ? 8'h32 :
+                                    (debug_last_wb_wnum_lcd >= 5'd10) ? 8'h31 :
                                                                     8'h30;
     wire [7:0] last_wb_ones_char  = 8'h30 + {4'b0, last_wb_ones_value};
-    wire [39:0] last_wb_name = debug_last_wb_valid ? {8'h52, last_wb_tens_char, last_wb_ones_char, 16'h2020} :
-                                                     "R--  ";
+    wire [39:0] last_wb_name = debug_last_wb_valid_lcd ? {8'h52, last_wb_tens_char, last_wb_ones_char, 16'h2020} :
+                                                         "R--  ";
 
     always @(*)
     begin
         case (display_number)
             6'd1:
             begin
-                display_valid = 1'b1;
-                display_name  = "WBPC ";
-                display_value = debug_wb_pc;
+                display_valid_next = 1'b1;
+                display_name_next  = "WBPC ";
+                display_value_next = debug_wb_pc_lcd;
             end
             6'd2:
             begin
-                display_valid = 1'b1;
-                display_name  = "INST ";
-                display_value = debug_inst;
+                display_valid_next = 1'b1;
+                display_name_next  = "INST ";
+                display_value_next = debug_inst_lcd;
             end
             6'd3:
             begin
-                display_valid = 1'b1;
-                display_name  = last_wb_name;
-                display_value = debug_last_wb_valid ? debug_last_wb_wdata : 32'd0;
+                display_valid_next = 1'b1;
+                display_name_next  = last_wb_name;
+                display_value_next = debug_last_wb_valid_lcd ? debug_last_wb_wdata_lcd : 32'd0;
             end
             6'd4:
             begin
-                display_valid = 1'b1;
-                display_name  = "WRPC ";
-                display_value = debug_last_wb_valid ? debug_last_wb_pc : 32'd0;
+                display_valid_next = 1'b1;
+                display_name_next  = "WRPC ";
+                display_value_next = debug_last_wb_valid_lcd ? debug_last_wb_pc_lcd : 32'd0;
             end
             6'd5:
             begin
-                display_valid = 1'b1;
-                display_name  = "STEP ";
-                display_value = debug_step_count;
+                display_valid_next = 1'b1;
+                display_name_next  = "STEP ";
+                display_value_next = debug_step_count_lcd;
             end
             6'd6:
             begin
-                display_valid = 1'b1;
-                display_name  = "CYCL ";
-                display_value = debug_cycle_count;
+                display_valid_next = 1'b1;
+                display_name_next  = "CYCL ";
+                display_value_next = debug_cycle_count_lcd;
             end
             6'd7:
             begin
-                display_valid = 1'b1;
-                display_name  = "IFPC ";
-                display_value = debug_fetch_pc;
+                display_valid_next = 1'b1;
+                display_name_next  = "IFPC ";
+                display_value_next = debug_fetch_pc_lcd;
             end
             6'd8:
             begin
-                display_valid = 1'b1;
-                display_name  = "CMTPC";
-                display_value = debug_commit_pc;
+                display_valid_next = 1'b1;
+                display_name_next  = "CMTPC";
+                display_value_next = debug_commit_pc_lcd;
             end
             6'd9:
             begin
-                display_valid = 1'b1;
-                display_name  = "CMTI ";
-                display_value = debug_commit_inst;
+                display_valid_next = 1'b1;
+                display_name_next  = "CMTI ";
+                display_value_next = debug_commit_inst_lcd;
             end
             6'd10:
             begin
-                display_valid = 1'b1;
-                display_name  = "PVLD ";
-                display_value = {28'd0, debug_pipe_valid};
+                display_valid_next = 1'b1;
+                display_name_next  = "PVLD ";
+                display_value_next = {28'd0, debug_pipe_valid_lcd};
             end
             6'd11:
             begin
-                display_valid = 1'b1;
-                display_name  = "HZD  ";
-                display_value = {29'd0, debug_pipe_hazard};
+                display_valid_next = 1'b1;
+                display_name_next  = "HZD  ";
+                display_value_next = {29'd0, debug_pipe_hazard_lcd};
             end
             6'd12:
             begin
-                display_valid = 1'b1;
-                display_name  = "NUM  ";
-                display_value = num_data;
+                display_valid_next = 1'b1;
+                display_name_next  = "NUM  ";
+                display_value_next = num_data_lcd;
             end
             6'd13:
             begin
-                display_valid = 1'b1;
-                display_name  = "MODE ";
-                display_value = {31'd0, debug_mode_run};
+                display_valid_next = 1'b1;
+                display_name_next  = "MODE ";
+                display_value_next = {31'd0, debug_mode_run_lcd};
             end
             6'd14:
             begin
-                display_valid = 1'b1;
-                display_name  = "RUN  ";
-                display_value = {31'd0, debug_run_active};
+                display_valid_next = 1'b1;
+                display_name_next  = "RUN  ";
+                display_value_next = {31'd0, debug_run_active_lcd};
             end
             6'd15:
             begin
-                display_valid = 1'b1;
-                display_name  = "DONE ";
-                display_value = {31'd0, debug_run_done};
+                display_valid_next = 1'b1;
+                display_name_next  = "DONE ";
+                display_value_next = {31'd0, debug_run_done_lcd};
             end
             6'd16:
             begin
-                display_valid = 1'b1;
-                display_name  = "SW   ";
-                display_value = {24'd0, switch};
+                display_valid_next = 1'b1;
+                display_name_next  = "SW   ";
+                display_value_next = {24'd0, switch_lcd};
             end
             default:
             begin
-                display_valid = 1'b0;
-                display_name  = 40'd0;
-                display_value = 32'd0;
+                display_valid_next = 1'b0;
+                display_name_next  = 40'd0;
+                display_value_next = 32'd0;
             end
         endcase
     end

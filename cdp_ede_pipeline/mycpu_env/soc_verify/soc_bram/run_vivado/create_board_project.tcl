@@ -47,10 +47,30 @@ proc filter_new_files {files} {
     return $new_files
 }
 
+proc filter_new_fileset_files {files fileset_name} {
+    set new_files {}
+    set fileset [get_filesets $fileset_name]
+    foreach file $files {
+        set full [file normalize $file]
+        if {[llength [get_files -quiet -of_objects $fileset $full]] == 0} {
+            lappend new_files $full
+        }
+    }
+    return $new_files
+}
+
 proc add_new_design_files {files} {
-    set new_files [filter_new_files $files]
+    set new_files [filter_new_fileset_files $files sources_1]
     if {[llength $new_files] > 0} {
-        add_files -scan_for_includes $new_files
+        add_files -fileset sources_1 -scan_for_includes $new_files
+    }
+}
+
+proc remove_design_file_if_present {file} {
+    set full [file normalize $file]
+    set existing [get_files -quiet -of_objects [get_filesets sources_1] $full]
+    if {[llength $existing] > 0} {
+        remove_files -fileset sources_1 $existing
     }
 }
 
@@ -83,7 +103,16 @@ add_new_design_files $rtl_files
 
 set ip_xci_files [glob -nocomplain ../rtl/xilinx_ip/*/*.xci]
 add_new_quiet_files $ip_xci_files
-add_new_design_files [glob -nocomplain ../../../myCPU/*.v]
+add_new_design_files [glob -nocomplain ../rtl/xilinx_ip/clk_pll/*.v]
+
+set mycpu_files [list]
+foreach mycpu_file [glob -nocomplain ../../../myCPU/*.v] {
+    if {[file tail $mycpu_file] ne "SimpleLACoreWrapRAM.v"} {
+        lappend mycpu_files $mycpu_file
+    }
+}
+remove_design_file_if_present ../../../myCPU/SimpleLACoreWrapRAM.v
+add_new_design_files $mycpu_files
 
 set board_sim_files [glob -nocomplain ./sim/*.v]
 if {[llength $board_sim_files] > 0} {
@@ -102,8 +131,11 @@ foreach ip_xci $ip_xci_files {
 set need_ip_generate $clean_project
 foreach required_ip_file {
     ../rtl/xilinx_ip/clk_pll/clk_pll.v
+    ../rtl/xilinx_ip/clk_pll/clk_pll_clk_wiz.v
     ../rtl/xilinx_ip/data_ram/sim/data_ram.v
+    ../rtl/xilinx_ip/data_ram/synth/data_ram.vhd
     ../rtl/xilinx_ip/inst_ram/sim/inst_ram.v
+    ../rtl/xilinx_ip/inst_ram/synth/inst_ram.vhd
 } {
     if {![file exists $required_ip_file]} {
         set need_ip_generate 1
