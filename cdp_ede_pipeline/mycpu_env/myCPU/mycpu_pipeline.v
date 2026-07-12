@@ -4,6 +4,7 @@ module mycpu_pipeline(
     input  wire        clk,
     input  wire        resetn,
     input  wire        cpu_en,
+    input  wire [ 7:0] hw_int,
 
     output wire        inst_sram_en,
     output wire [ 3:0] inst_sram_we,
@@ -39,6 +40,7 @@ module mycpu_pipeline(
         .clk                 (clk),
         .resetn              (resetn),
         .cpu_en              (cpu_en),
+        .hw_int              (hw_int),
 
         .inst_sram_en        (inst_sram_en),
         .inst_sram_we        (inst_sram_we),
