@@ -2,6 +2,8 @@
 
 module la32_decoder(
     input  wire [31:0] inst,
+    input  wire        valid,
+    input  wire        exception,
 
     output wire [ 4:0] rd,
     output wire [ 4:0] rj,
@@ -77,7 +79,14 @@ module la32_decoder(
     output wire inst_invtlb,
     output wire inst_cacop,
 
-    output wire inst_valid
+    output wire inst_valid,
+    output wire use_rj,
+    output wire use_rk,
+    output wire use_rd,
+    output wire [4:0] dest,
+    output wire is_load,
+    output wire rf_we,
+    output wire serial
 );
 
     wire [5:0]  op_31_26 = inst[31:26];
@@ -186,5 +195,47 @@ module la32_decoder(
                         inst_rdcntvl_w | inst_rdcntvh_w | inst_rdcntid_w |
                         inst_tlbsrch | inst_tlbrd | inst_tlbwr | inst_tlbfill |
                         inst_invtlb | inst_cacop;
+
+    assign use_rj = inst_add_w | inst_sub_w | inst_slt | inst_sltu |
+                    inst_nor | inst_and | inst_or | inst_xor |
+                    inst_sll_w | inst_srl_w | inst_sra_w |
+                    inst_mul_w | inst_mulh_w | inst_mulh_wu |
+                    inst_div_w | inst_div_wu | inst_mod_w | inst_mod_wu |
+                    inst_slli_w | inst_srli_w | inst_srai_w |
+                    inst_addi_w | inst_slti | inst_sltui |
+                    inst_andi | inst_ori | inst_xori |
+                    inst_ld_b | inst_ld_h | inst_ld_w | inst_ld_bu | inst_ld_hu |
+                    inst_st_b | inst_st_h | inst_st_w |
+                    inst_beq | inst_bne | inst_blt | inst_bge |
+                    inst_bltu | inst_bgeu | inst_jirl |
+                    inst_csrxchg | inst_invtlb | inst_cacop;
+    assign use_rk = inst_add_w | inst_sub_w | inst_slt | inst_sltu |
+                    inst_nor | inst_and | inst_or | inst_xor |
+                    inst_sll_w | inst_srl_w | inst_sra_w |
+                    inst_mul_w | inst_mulh_w | inst_mulh_wu |
+                    inst_div_w | inst_div_wu | inst_mod_w | inst_mod_wu |
+                    inst_invtlb;
+    assign use_rd = inst_st_b | inst_st_h | inst_st_w |
+                    inst_beq | inst_bne | inst_blt | inst_bge |
+                    inst_bltu | inst_bgeu | inst_csrwr | inst_csrxchg;
+
+    assign dest = inst_bl ? 5'd1 : inst_rdcntid_w ? rj : rd;
+    assign is_load = inst_ld_b | inst_ld_h | inst_ld_w | inst_ld_bu | inst_ld_hu;
+    assign rf_we = inst_add_w | inst_sub_w | inst_slt | inst_sltu |
+                   inst_nor | inst_and | inst_or | inst_xor |
+                   inst_sll_w | inst_srl_w | inst_sra_w |
+                   inst_mul_w | inst_mulh_w | inst_mulh_wu |
+                   inst_div_w | inst_div_wu | inst_mod_w | inst_mod_wu |
+                   inst_slli_w | inst_srli_w | inst_srai_w |
+                   inst_addi_w | inst_slti | inst_sltui |
+                   inst_andi | inst_ori | inst_xori |
+                   inst_lu12i_w | inst_pcaddu12i |
+                   is_load | inst_csrrd | inst_csrwr | inst_csrxchg |
+                   inst_rdcntvl_w | inst_rdcntvh_w | inst_rdcntid_w |
+                   inst_bl | inst_jirl;
+    assign serial = valid & (exception | !inst_valid | inst_syscall |
+                    inst_break | inst_ertn | inst_csrrd | inst_csrwr |
+                    inst_csrxchg | inst_tlbsrch | inst_tlbrd | inst_tlbwr |
+                    inst_tlbfill | inst_invtlb | inst_cacop);
 
 endmodule

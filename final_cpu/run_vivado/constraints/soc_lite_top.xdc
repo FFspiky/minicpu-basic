@@ -155,6 +155,11 @@ set_false_path -quiet -from $timer_clk_obj -to $cpu_clk_obj
 set_false_path -quiet -from $cpu_clk_obj -to $timer_clk_obj
 set_false_path -quiet -from $cpu_clk_obj -to $lcd_clk_obj
 
+# PS/2 key state crosses from the 100 MHz board clock into a two-flop CPU
+# synchronizer. Only the asynchronous first stage is exempt from timing.
+set external_key_sync0_regs [get_cells -hier -quiet -filter {NAME =~ *u_confreg/external_key_sync0_reg*}]
+set_false_path -quiet -from $lcd_clk_obj -to $external_key_sync0_regs
+
 # The VGA sidebar color is sampled only on the 25 MHz pixel enable.
 set vga_sidebar_pixel_regs [get_cells -hier -quiet -filter {NAME =~ *u_vga_game_top/sidebar_pixel_latched_reg*}]
 set_multicycle_path -quiet -setup 4 -to $vga_sidebar_pixel_regs

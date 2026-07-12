@@ -1,0 +1,95 @@
+已完成工作
+工程备份
+已先给整个工程做过备份，备份文件在：
+backups/mycpu_env_backup_20260708_152207.zip
+
+加入 PS/2 键盘接口
+添加了 FPGA 板上 PS/2 接口：
+ps2_clk：Y2
+ps2_data：AD1
+功能包括：
+接收键盘扫描码
+通过键盘模拟拨码开关
+支持键盘控制 VGA trace 上下翻页
+支持键盘输入机器码的基础框架
+
+加入 UART 接口
+添加 UART 收发引脚，并实现 UART 8N1 收发模块。
+功能包括：
+键盘按键扫描码可通过 UART 输出到电脑串口助手
+CPU 可通过内存映射寄存器访问 UART
+支持 UART 状态、接收数据、发送数据寄存器
+
+键盘替代拨码控制
+原来部分由 FPGA 板上拨码控制的逻辑，增加了键盘控制方式。
+当前按键大致功能：
+1 到 8：切换虚拟拨码 bit0 到 bit7
+0：清空虚拟拨码
+W / ↑：VGA trace 向旧记录翻
+S / ↓：VGA trace 向新记录翻
+H：回到最新 trace
+
+LCD 显示扩展
+LCD 上增加/调整了调试显示内容，例如：
+当前键盘扫描码
+虚拟拨码状态
+程序输入模式状态
+当前输入的机器码
+
+VGA 显示器调试界面
+增加 VGA 输出，把原来 LCD 上的一部分 CPU 调试信息搬到显示器上。
+VGA 显示内容包括：
+PC
+INST
+WDATA
+WINFO
+当前执行 trace
+键盘/运行状态相关信息
+后续又把 VGA 配色改为：
+黑色背景
+白色数据
+
+动态 trace 记录
+增加了 256 条执行 trace 缓存。
+每条记录包含：
+PC
+INST
+WDATA
+WINFO
+显示器一次显示 8 行，可用键盘上下查看最近 256 条动态执行记录。
+
+取消自动结束点
+之前 CPU 运行到 1c01018c 会停止，并冻结 trace。
+现在已经取消这个结束点判断：
+CPU 不再因为 PC == 1c01018c 停止
+trace 不再冻结
+显示器会持续显示最新执行记录
+
+数码管刷新频率调整
+数码管原来的扫描选择是 count[19:17]，刷新率偏低，容易肉眼看到闪烁。
+已改为：
+count[17:15]
+约等于把整屏刷新率从约 48Hz 提高到约 190Hz。
+
+时钟问题处理
+   曾尝试降低 CPU 时钟来缓解 WNS，但 BUFGCE_DIV 在当前 Vivado/器件流程里被识别成黑盒，导致 DRC 报错。
+
+   后来已修正：
+去掉 BUFGCE_DIV
+恢复使用工程原本的 clk_pll
+CPU 时钟恢复为原来的 50MHz
+保留必要的跨时钟 false path 约束
+主要改动文件
+soc_verify/soc_bram/rtl/soc_lite_top.v
+soc_verify/soc_bram/rtl/soc_lite_lcd_top.v
+soc_verify/soc_bram/rtl/CONFREG/confreg.v
+soc_verify/soc_bram/run_vivado/constraints/soc_lite_top.xdc
+soc_verify/soc_bram/run_vivado/sim/tb_lcd_top.v
+soc_verify/soc_bram/rtl/xilinx_ip/clk_pll/*
+当前使用方式
+重新综合并生成 bitstream 后上板
+VGA 显示器应显示黑底白字的 CPU trace
+键盘 W/↑、S/↓、H 用于查看 trace
+键盘数字键 1~8 可切换虚拟拨码
+0 清空虚拟拨码
+UART 可接收键盘扫描码输出，用串口助手观察

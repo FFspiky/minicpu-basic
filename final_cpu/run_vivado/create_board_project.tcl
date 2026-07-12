@@ -66,12 +66,23 @@ proc add_new_design_files {files} {
     }
 }
 
-proc remove_design_file_if_present {file} {
-    set full [file normalize $file]
-    set existing [get_files -quiet -of_objects [get_filesets sources_1] $full]
-    if {[llength $existing] > 0} {
-        remove_files -fileset sources_1 $existing
+proc sync_design_directory {directory pattern} {
+    set normalized_dir [file normalize $directory]
+    set desired_files [list]
+    foreach file [glob -nocomplain [file join $normalized_dir $pattern]] {
+        lappend desired_files [file normalize $file]
     }
+
+    foreach existing [get_files -quiet -of_objects [get_filesets sources_1]] {
+        set normalized_existing [file normalize $existing]
+        if {[file dirname $normalized_existing] eq $normalized_dir &&
+            [lsearch -exact $desired_files $normalized_existing] < 0} {
+            puts "INFO: removing stale design source $normalized_existing"
+            remove_files -fileset sources_1 $existing
+        }
+    }
+
+    add_new_design_files $desired_files
 }
 
 proc add_new_quiet_files {files} {
@@ -106,14 +117,7 @@ set ip_xci_files [glob -nocomplain ../rtl/xilinx_ip/*/*.xci]
 add_new_quiet_files $ip_xci_files
 add_new_design_files [glob -nocomplain ../rtl/xilinx_ip/clk_pll/*.v]
 
-remove_design_file_if_present ../rtl/cpu/SimpleLACoreWrapRAM.v
-set mycpu_files [list]
-foreach mycpu_file [glob -nocomplain ../rtl/cpu/*.v] {
-    if {[file tail $mycpu_file] ne "SimpleLACoreWrapRAM.v"} {
-        lappend mycpu_files $mycpu_file
-    }
-}
-add_new_design_files $mycpu_files
+sync_design_directory ../rtl/cpu *.v
 
 set board_sim_files [glob -nocomplain ./sim/*.v]
 if {[llength $board_sim_files] > 0} {
