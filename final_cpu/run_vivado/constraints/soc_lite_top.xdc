@@ -7,6 +7,26 @@ create_clock -period 10.000 -name clk -waveform {0.000 5.000} [get_ports clk]
 #reset
 set_property PACKAGE_PIN Y3 [get_ports resetn]
 
+# PS/2 keyboard
+set_property PACKAGE_PIN Y2  [get_ports ps2_clk]
+set_property PACKAGE_PIN AD1 [get_ports ps2_data]
+
+# VGA RGB444 and active-low sync
+set_property PACKAGE_PIN T3 [get_ports {vga_r[0]}]
+set_property PACKAGE_PIN T2 [get_ports {vga_r[1]}]
+set_property PACKAGE_PIN U2 [get_ports {vga_r[2]}]
+set_property PACKAGE_PIN U4 [get_ports {vga_r[3]}]
+set_property PACKAGE_PIN R2 [get_ports {vga_g[0]}]
+set_property PACKAGE_PIN R1 [get_ports {vga_g[1]}]
+set_property PACKAGE_PIN U1 [get_ports {vga_g[2]}]
+set_property PACKAGE_PIN R5 [get_ports {vga_g[3]}]
+set_property PACKAGE_PIN P5 [get_ports {vga_b[0]}]
+set_property PACKAGE_PIN N1 [get_ports {vga_b[1]}]
+set_property PACKAGE_PIN P1 [get_ports {vga_b[2]}]
+set_property PACKAGE_PIN P3 [get_ports {vga_b[3]}]
+set_property PACKAGE_PIN U5 [get_ports vga_hsync]
+set_property PACKAGE_PIN U6 [get_ports vga_vsync]
+
 
 #LED
 set_property PACKAGE_PIN K23 [get_ports {led[0]}]
@@ -111,6 +131,10 @@ set_property PACKAGE_PIN V6 [get_ports {btn_step[1]}]
 
 set_property IOSTANDARD LVCMOS33 [get_ports clk]
 set_property IOSTANDARD LVCMOS33 [get_ports resetn]
+set_property IOSTANDARD LVCMOS33 [get_ports {ps2_clk ps2_data}]
+set_property PULLUP true [get_ports {ps2_clk ps2_data}]
+set_property IOSTANDARD LVCMOS33 [get_ports {vga_r[*] vga_g[*] vga_b[*]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {vga_hsync vga_vsync}]
 set_property IOSTANDARD LVCMOS33 [get_ports {led[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {led_rg0[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {led_rg1[*]}]
@@ -123,21 +147,20 @@ set_property IOSTANDARD LVCMOS33 [get_ports {btn_step[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {num_data[*]}]
 
 
-set raw_cpu_clk_obj [get_clocks -quiet cpu_clk_clk_pll]
-set raw_cpu_clk_pin [get_pins -quiet -hierarchical *clkout1_buf/O]
-set cpu_clk_div_pin [get_pins -quiet -hierarchical *u_cpu_clk_div_bufg/O]
-
-if {[llength $raw_cpu_clk_pin] > 0 && [llength $cpu_clk_div_pin] > 0} {
-    create_generated_clock -name cpu_clk_board -source [lindex $raw_cpu_clk_pin 0] -divide_by 8 [lindex $cpu_clk_div_pin 0]
-}
-
-set cpu_clk_obj   [get_clocks -quiet cpu_clk_board]
-if {[llength $cpu_clk_obj] == 0} {
-    set cpu_clk_obj $raw_cpu_clk_obj
-}
+set cpu_clk_obj   [get_clocks -quiet cpu_clk_clk_pll]
 set timer_clk_obj [get_clocks -quiet timer_clk_clk_pll]
 set lcd_clk_obj   [get_clocks -quiet clk]
 
 set_false_path -quiet -from $timer_clk_obj -to $cpu_clk_obj
 set_false_path -quiet -from $cpu_clk_obj -to $timer_clk_obj
 set_false_path -quiet -from $cpu_clk_obj -to $lcd_clk_obj
+
+# PS/2 key state crosses from the 100 MHz board clock into a two-flop CPU
+# synchronizer. Only the asynchronous first stage is exempt from timing.
+set external_key_sync0_regs [get_cells -hier -quiet -filter {NAME =~ *u_confreg/external_key_sync0_reg*}]
+set_false_path -quiet -from $lcd_clk_obj -to $external_key_sync0_regs
+
+# The VGA sidebar color is sampled only on the 25 MHz pixel enable.
+set vga_sidebar_pixel_regs [get_cells -hier -quiet -filter {NAME =~ *u_vga_game_top/sidebar_pixel_latched_reg*}]
+set_multicycle_path -quiet -setup 4 -to $vga_sidebar_pixel_regs
+set_multicycle_path -quiet -hold  3 -to $vga_sidebar_pixel_regs

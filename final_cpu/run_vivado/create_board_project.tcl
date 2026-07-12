@@ -66,6 +66,25 @@ proc add_new_design_files {files} {
     }
 }
 
+proc sync_design_directory {directory pattern} {
+    set normalized_dir [file normalize $directory]
+    set desired_files [list]
+    foreach file [glob -nocomplain [file join $normalized_dir $pattern]] {
+        lappend desired_files [file normalize $file]
+    }
+
+    foreach existing [get_files -quiet -of_objects [get_filesets sources_1]] {
+        set normalized_existing [file normalize $existing]
+        if {[file dirname $normalized_existing] eq $normalized_dir &&
+            [lsearch -exact $desired_files $normalized_existing] < 0} {
+            puts "INFO: removing stale design source $normalized_existing"
+            remove_files -fileset sources_1 $existing
+        }
+    }
+
+    add_new_design_files $desired_files
+}
+
 proc add_new_quiet_files {files} {
     set new_files [filter_new_files $files]
     if {[llength $new_files] > 0} {
@@ -90,20 +109,15 @@ proc add_new_constr_files {files} {
 set rtl_files [concat \
     [glob -nocomplain ../rtl/soc/*.v] \
     [glob -nocomplain ../rtl/soc/BRIDGE/*.v] \
-    [glob -nocomplain ../rtl/soc/CONFREG/*.v]]
+    [glob -nocomplain ../rtl/soc/CONFREG/*.v] \
+    [glob -nocomplain ../rtl/lcd/*.v]]
 add_new_design_files $rtl_files
 
 set ip_xci_files [glob -nocomplain ../rtl/xilinx_ip/*/*.xci]
 add_new_quiet_files $ip_xci_files
 add_new_design_files [glob -nocomplain ../rtl/xilinx_ip/clk_pll/*.v]
 
-set mycpu_files [list ../rtl/cpu/SimpleLACoreWrapRAM.v]
-foreach mycpu_file [glob -nocomplain ../rtl/cpu/*.v] {
-    if {[file tail $mycpu_file] ne "SimpleLACoreWrapRAM.v"} {
-        lappend mycpu_files $mycpu_file
-    }
-}
-add_new_design_files $mycpu_files
+sync_design_directory ../rtl/cpu *.v
 
 set board_sim_files [glob -nocomplain ./sim/*.v]
 if {[llength $board_sim_files] > 0} {
@@ -150,3 +164,8 @@ set_property top soc_lite_lcd_top [current_fileset]
 set_property top tb_lcd_top [get_filesets sim_1]
 update_compile_order -fileset sources_1
 update_compile_order -fileset sim_1
+
+# Vivado 2019.2 has no in-place save_project command. Closing and reopening
+# writes the updated source-set to the existing .xpr without creating a copy.
+close_project
+open_project $project_file
