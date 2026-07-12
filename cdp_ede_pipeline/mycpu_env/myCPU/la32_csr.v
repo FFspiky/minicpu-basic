@@ -4,6 +4,7 @@ module la32_csr(
     input  wire        clk,
     input  wire        resetn,
     input  wire        cpu_en,
+    input  wire [ 7:0] hw_int,
 
     input  wire [13:0] read_addr,
     output reg  [31:0] read_data,
@@ -34,7 +35,7 @@ module la32_csr(
     input  wire [31:0] asid_wdata,
 
     output wire        has_int,
-    output reg  [63:0] stable_counter,
+    input  wire [63:0] stable_counter,
     output wire [31:0] ertn_pc,
     output wire [31:0] exc_entry,
 
@@ -215,10 +216,9 @@ module la32_csr(
             tlbrentry      <= 32'b0;
             dmw0           <= 32'b0;
             dmw1           <= 32'b0;
-            stable_counter <= 64'b0;
         end
         else if (cpu_en) begin
-            stable_counter <= stable_counter + 64'd1;
+            estat[9:2] <= hw_int;
 
             if (timer_en && !timer_fired) begin
                 if (tval == 32'b0) begin

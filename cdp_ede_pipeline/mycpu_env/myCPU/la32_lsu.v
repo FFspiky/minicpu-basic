@@ -1,6 +1,12 @@
 `timescale 1ns / 1ps
 
 module la32_lsu(
+    input  wire [31:0] check_addr,
+    input  wire        check_ld_h,
+    input  wire        check_ld_w,
+    input  wire        check_ld_hu,
+    input  wire        check_st_h,
+    input  wire        check_st_w,
     input  wire [31:0] addr,
     input  wire [31:0] store_data,
     input  wire [31:0] load_data,
@@ -18,11 +24,13 @@ module la32_lsu(
     output reg  [31:0] load_result
 );
 
-    wire is_half = op_ld_h | op_ld_hu | op_st_h;
-    wire is_word = op_ld_w | op_st_w;
     wire is_store = op_st_b | op_st_h | op_st_w;
 
-    assign align_error = (is_half & addr[0]) | (is_word & |addr[1:0]);
+    wire check_is_half = check_ld_h | check_ld_hu | check_st_h;
+    wire check_is_word = check_ld_w | check_st_w;
+
+    assign align_error = (check_is_half & check_addr[0]) |
+                         (check_is_word & |check_addr[1:0]);
 
     always @(*) begin
         store_we    = 4'b0000;
