@@ -4,7 +4,7 @@
 module soc_lite_lcd_top #(
     parameter SIMULATION  = 1'b0,
     parameter SINGLE_STEP = 1'b0,
-    parameter GAME_LCD    = 1'b1,
+    parameter GAME_LCD    = 1'b0,
     parameter [31:0] END_PC = 32'h1c000100
 )
 (
@@ -117,6 +117,9 @@ module soc_lite_lcd_top #(
         .game_flags         (game_flags),
         .game_score         (game_score),
         .game_commit_toggle (game_commit_toggle),
+        .current_score_bcd  (num_data[19:0]),
+        .leaderboard_bcd_scores (leaderboard_bcd_scores),
+        .leaderboard_count  (leaderboard_count),
         .vga_hsync          (vga_hsync),
         .vga_vsync          (vga_vsync),
         .vga_r              (vga_r),

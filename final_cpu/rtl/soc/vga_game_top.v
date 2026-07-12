@@ -12,6 +12,9 @@ module vga_game_top(
     input  wire [31:0] game_flags,
     input  wire [31:0] game_score,
     input  wire        game_commit_toggle,
+    input  wire [19:0] current_score_bcd,
+    input  wire [159:0] leaderboard_bcd_scores,
+    input  wire [3:0]  leaderboard_count,
     output wire        vga_hsync,
     output wire        vga_vsync,
     output wire [3:0]  vga_r,
@@ -32,8 +35,11 @@ module vga_game_top(
     reg [9:0] v_count;
     reg [9:0] rotated_game_x;
     reg [1:0] rotated_x_phase;
+    reg [8:0] rotated_game_y;
+    reg [1:0] rotated_y_phase;
     wire pixel_ce = (pixel_div == 2'd3);
     wire [2:0] rotated_x_phase_sum = {1'b0, rotated_x_phase} + 3'd5;
+    wire [2:0] rotated_y_phase_sum = {1'b0, rotated_y_phase} + 3'd5;
 
     wire [1:0] cdc_car_lane;
     wire [8:0] cdc_car_y;
@@ -81,6 +87,9 @@ module vga_game_top(
     reg [15:0] render_score;
     reg [15:0] render_speed_q8;
     reg [17:0] bg_scroll_q8;
+    reg [19:0] render_current_score_bcd;
+    reg [159:0] render_leaderboard_bcd_scores;
+    reg [3:0] render_leaderboard_count;
 
     game_state_cdc u_game_state_cdc(
         .clk(clk), .resetn(resetn),
@@ -109,6 +118,8 @@ module vga_game_top(
             v_count <= 10'd0;
             rotated_game_x <= 10'd799;
             rotated_x_phase <= 2'd0;
+            rotated_game_y <= 9'd0;
+            rotated_y_phase <= 2'd0;
             render_car_lane <= 2'd1;
             render_car_y <= 9'd210;
             render_obs_lane <= 2'd0;
@@ -132,6 +143,9 @@ module vga_game_top(
             render_score <= 16'd0;
             render_speed_q8 <= 16'd0;
             bg_scroll_q8 <= 18'd0;
+            render_current_score_bcd <= 20'd0;
+            render_leaderboard_bcd_scores <= 160'd0;
+            render_leaderboard_count <= 4'd0;
         end
         else
         begin
@@ -168,6 +182,9 @@ module vga_game_top(
                         render_difficulty_level <= cdc_difficulty_level;
                         render_score <= cdc_score;
                         render_speed_q8 <= cdc_speed_q8;
+                        render_current_score_bcd <= current_score_bcd;
+                        render_leaderboard_bcd_scores <= leaderboard_bcd_scores;
+                        render_leaderboard_count <= leaderboard_count;
                         if (cdc_game_enable && !cdc_paused && !cdc_game_over && !cdc_waiting_start)
                             bg_scroll_q8 <= bg_scroll_q8 + {2'b00, cdc_speed_q8};
                     end
@@ -192,17 +209,38 @@ module vga_game_top(
                 else
                 begin
                     h_count <= h_count + 1'b1;
+                    if (h_count < 10'd287)
+                    begin
+                        if (rotated_y_phase_sum >= 3'd6)
+                        begin
+                            rotated_game_y <= rotated_game_y + 9'd2;
+                            rotated_y_phase <= rotated_y_phase_sum - 3'd6;
+                        end
+                        else
+                        begin
+                            rotated_game_y <= rotated_game_y + 9'd1;
+                            rotated_y_phase <= rotated_y_phase_sum - 3'd3;
+                        end
+                    end
+                end
+
+                if (h_count == H_TOTAL - 1)
+                begin
+                    rotated_game_y <= 9'd0;
+                    rotated_y_phase <= 2'd0;
                 end
             end
         end
     end
 
     wire active_video = (h_count < H_ACTIVE) && (v_count < V_ACTIVE);
-    wire [11:0] h_count_times_three = {2'b00, h_count} +
-                                           ({2'b00, h_count} << 1);
-    wire [9:0] game_x = rotated_game_x;
-    wire [8:0] game_y = h_count_times_three[10:2];
-    wire [15:0] pixel_color;
+    wire game_region = active_video && (h_count < 10'd288);
+    wire sidebar_region = active_video && (h_count >= 10'd296);
+    wire [9:0] game_x = (v_count == 10'd479) ? 10'd0 : rotated_game_x;
+    wire [8:0] game_y = (h_count == 10'd287) ? 9'd479 : rotated_game_y;
+    wire [15:0] game_pixel_color;
+    wire [15:0] sidebar_pixel_color;
+    wire [9:0] sidebar_x_wide = h_count - 10'd296;
 
     racing_pixel_renderer u_renderer(
         .x(game_x), .y(game_y), .bg_scroll(bg_scroll_q8[17:8]),
@@ -214,8 +252,19 @@ module vga_game_top(
         .game_enable(render_game_enable), .paused(render_paused), .game_over(render_game_over),
         .waiting_start(render_waiting_start), .bg_enable(render_bg_enable),
         .score(render_score), .speed_q8(render_speed_q8),
-        .difficulty_level(render_difficulty_level), .pixel(pixel_color)
+        .difficulty_level(render_difficulty_level), .pixel(game_pixel_color)
     );
+
+    vga_scoreboard_renderer u_scoreboard_renderer(
+        .x(sidebar_x_wide[8:0]), .y(v_count[8:0]),
+        .current_score_bcd(render_current_score_bcd),
+        .scores_bcd_packed(render_leaderboard_bcd_scores),
+        .score_count(render_leaderboard_count),
+        .pixel(sidebar_pixel_color)
+    );
+
+    wire [15:0] pixel_color = game_region ? game_pixel_color :
+                              sidebar_region ? sidebar_pixel_color : 16'h0000;
 
     assign vga_hsync = ~((h_count >= H_ACTIVE + H_FRONT) &&
                          (h_count < H_ACTIVE + H_FRONT + H_SYNC));

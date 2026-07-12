@@ -265,26 +265,24 @@ module tb_lcd_top;
         end
 `endif
 
-        timeout = 0;
-        while (dut.lcd_status[0] != 1'b1 && timeout < 3000000)
+        force dut.display_number = 6'd1;
+        #100;
+        if (dut.display_valid !== 1'b1 || dut.display_name !== "WBPC " ||
+            dut.lcd_status !== 32'd0)
         begin
-            #10;
-            timeout = timeout + 1;
+            $display("FAIL: LCD debug page did not select WBPC after reset name=%h valid=%b status=%h",
+                     dut.display_name, dut.display_valid, dut.lcd_status);
+            $fatal;
         end
-        if (timeout >= 3000000)
+        release dut.display_number;
+
+        if (lcd_cs !== 1'b1 || lcd_rd !== 1'b1 || lcd_bl_ctr !== 1'b1)
         begin
-            $display("FAIL: LCD game renderer did not finish initialization");
-            $display("DBG: lcd_status=%h", dut.lcd_status);
+            $display("FAIL: LCD debug module pins are not in the expected state");
             $fatal;
         end
 
-        if (lcd_cs !== 1'b0 || lcd_rd !== 1'b1 || lcd_bl_ctr !== 1'b1)
-        begin
-            $display("FAIL: LCD pins are not in active write-display mode");
-            $fatal;
-        end
-
-        $display("PASS: racing game CPU MMIO boot and LCD init smoke test completed");
+        $display("PASS: racing game CPU MMIO boot and LCD debug-page smoke test completed");
         #100;
         $finish;
     end

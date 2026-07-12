@@ -48,6 +48,9 @@ module tb_game_peripherals;
         .game_obs1(game_obs1), .game_obs2(game_obs2), .game_bonus(game_bonus),
         .game_flags(game_flags), .game_score(game_score),
         .game_commit_toggle(game_commit_toggle),
+        .current_score_bcd(game_score[19:0]),
+        .leaderboard_bcd_scores(scores_bcd_packed),
+        .leaderboard_count(score_count),
         .vga_hsync(vga_hsync), .vga_vsync(vga_vsync),
         .vga_r(vga_r), .vga_g(vga_g), .vga_b(vga_b)
     );
@@ -227,9 +230,77 @@ module tb_game_peripherals;
         force u_vga.h_count = 10'd0;
         #1;
         if (u_vga.game_y != 9'd0) begin $display("FAIL: VGA CCW left edge"); $fatal; end
-        force u_vga.h_count = 10'd639;
+        force u_vga.h_count = 10'd287;
         #1;
         if (u_vga.game_y != 9'd479) begin $display("FAIL: VGA CCW right edge"); $fatal; end
+        if (!u_vga.game_region) begin $display("FAIL: VGA game right edge not active"); $fatal; end
+        force u_vga.h_count = 10'd288;
+        #1;
+        if (u_vga.game_region || u_vga.sidebar_region || u_vga.pixel_color != 16'h0000) begin
+            $display("FAIL: VGA gutter is not black"); $fatal;
+        end
+        force u_vga.h_count = 10'd296;
+        #1;
+        if (!u_vga.sidebar_region) begin $display("FAIL: VGA sidebar start"); $fatal; end
+
+        // Sidebar text colors and placement use the frame-latched snapshots.
+        force u_vga.render_current_score_bcd = 20'h12345;
+        force u_vga.render_leaderboard_bcd_scores =
+            160'h00000000000000000000000000000000000054321;
+        force u_vga.render_leaderboard_count = 4'd1;
+        force u_vga.h_count = 10'd426;
+        force u_vga.v_count = 10'd34;
+        #1;
+        if (u_vga.pixel_color != 16'h07ff) begin
+            $display("FAIL: VGA SCORE title pixel=%h", u_vga.pixel_color); $fatal;
+        end
+        force u_vga.h_count = 10'd390;
+        force u_vga.v_count = 10'd78;
+        #1;
+        if (u_vga.pixel_color != 16'hfec0) begin
+            $display("FAIL: VGA current score pixel=%h", u_vga.pixel_color); $fatal;
+        end
+        force u_vga.h_count = 10'd402;
+        force u_vga.v_count = 10'd210;
+        #1;
+        if (u_vga.pixel_color != 16'hffff) begin
+            $display("FAIL: VGA leaderboard row pixel=%h", u_vga.pixel_color); $fatal;
+        end
+
+        // Empty entries use dashes, while a full table renders the eighth score.
+        force u_vga.render_leaderboard_count = 4'd0;
+        force u_vga.h_count = 10'd471;
+        force u_vga.v_count = 10'd219;
+        #1;
+        if (u_vga.pixel_color != 16'hffff) begin
+            $display("FAIL: VGA empty leaderboard placeholder pixel=%h", u_vga.pixel_color); $fatal;
+        end
+        force u_vga.render_leaderboard_bcd_scores =
+            160'h9876500000000000000000000000000000000000;
+        force u_vga.render_leaderboard_count = 4'd8;
+        force u_vga.h_count = 10'd453;
+        force u_vga.v_count = 10'd427;
+        #1;
+        if (u_vga.pixel_color != 16'hffff) begin
+            $display("FAIL: VGA eighth leaderboard score pixel=%h", u_vga.pixel_color); $fatal;
+        end
+        release u_vga.render_current_score_bcd;
+        release u_vga.render_leaderboard_bcd_scores;
+        release u_vga.render_leaderboard_count;
+
+        // Inputs remain pending until the VGA frame boundary.
+        game_score = 32'h0005_4321;
+        #20;
+        if (u_vga.render_current_score_bcd != 20'h12345) begin
+            $display("FAIL: VGA score changed in the middle of a frame"); $fatal;
+        end
+        force u_vga.h_count = 10'd799;
+        force u_vga.v_count = 10'd524;
+        force u_vga.pixel_div = 2'd3;
+        @(posedge clk); #1;
+        if (u_vga.render_current_score_bcd != 20'h54321) begin
+            $display("FAIL: VGA score did not latch at frame boundary"); $fatal;
+        end
         release u_vga.h_count;
         release u_vga.v_count;
         release u_vga.pixel_div;
