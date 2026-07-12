@@ -36,10 +36,10 @@ module vga_game_top(
     reg [9:0] rotated_game_x;
     reg [1:0] rotated_x_phase;
     reg [8:0] rotated_game_y;
-    reg [1:0] rotated_y_phase;
+    reg [5:0] rotated_y_phase;
     wire pixel_ce = (pixel_div == 2'd3);
     wire [2:0] rotated_x_phase_sum = {1'b0, rotated_x_phase} + 3'd5;
-    wire [2:0] rotated_y_phase_sum = {1'b0, rotated_y_phase} + 3'd5;
+    wire [6:0] rotated_y_phase_sum = {1'b0, rotated_y_phase} + 7'd60;
 
     wire [1:0] cdc_car_lane;
     wire [8:0] cdc_car_y;
@@ -90,6 +90,8 @@ module vga_game_top(
     reg [19:0] render_current_score_bcd;
     reg [159:0] render_leaderboard_bcd_scores;
     reg [3:0] render_leaderboard_count;
+    reg [15:0] sidebar_pixel_latched;
+    wire [15:0] sidebar_pixel_color;
 
     game_state_cdc u_game_state_cdc(
         .clk(clk), .resetn(resetn),
@@ -119,7 +121,7 @@ module vga_game_top(
             rotated_game_x <= 10'd799;
             rotated_x_phase <= 2'd0;
             rotated_game_y <= 9'd0;
-            rotated_y_phase <= 2'd0;
+            rotated_y_phase <= 6'd0;
             render_car_lane <= 2'd1;
             render_car_y <= 9'd210;
             render_obs_lane <= 2'd0;
@@ -146,12 +148,14 @@ module vga_game_top(
             render_current_score_bcd <= 20'd0;
             render_leaderboard_bcd_scores <= 160'd0;
             render_leaderboard_count <= 4'd0;
+            sidebar_pixel_latched <= 16'd0;
         end
         else
         begin
             pixel_div <= pixel_div + 1'b1;
             if (pixel_ce)
             begin
+                sidebar_pixel_latched <= sidebar_pixel_color;
                 if (h_count == H_TOTAL - 1)
                 begin
                     h_count <= 10'd0;
@@ -209,17 +213,17 @@ module vga_game_top(
                 else
                 begin
                     h_count <= h_count + 1'b1;
-                    if (h_count < 10'd287)
+                    if (h_count < 10'd343)
                     begin
-                        if (rotated_y_phase_sum >= 3'd6)
+                        if (rotated_y_phase_sum >= 7'd86)
                         begin
                             rotated_game_y <= rotated_game_y + 9'd2;
-                            rotated_y_phase <= rotated_y_phase_sum - 3'd6;
+                            rotated_y_phase <= rotated_y_phase_sum - 7'd86;
                         end
                         else
                         begin
                             rotated_game_y <= rotated_game_y + 9'd1;
-                            rotated_y_phase <= rotated_y_phase_sum - 3'd3;
+                            rotated_y_phase <= rotated_y_phase_sum - 7'd43;
                         end
                     end
                 end
@@ -227,20 +231,19 @@ module vga_game_top(
                 if (h_count == H_TOTAL - 1)
                 begin
                     rotated_game_y <= 9'd0;
-                    rotated_y_phase <= 2'd0;
+                    rotated_y_phase <= 6'd0;
                 end
             end
         end
     end
 
     wire active_video = (h_count < H_ACTIVE) && (v_count < V_ACTIVE);
-    wire game_region = active_video && (h_count < 10'd288);
-    wire sidebar_region = active_video && (h_count >= 10'd296);
+    wire game_region = active_video && (h_count < 10'd344);
+    wire sidebar_region = active_video && (h_count >= 10'd352);
     wire [9:0] game_x = (v_count == 10'd479) ? 10'd0 : rotated_game_x;
-    wire [8:0] game_y = (h_count == 10'd287) ? 9'd479 : rotated_game_y;
+    wire [8:0] game_y = (h_count == 10'd343) ? 9'd479 : rotated_game_y;
     wire [15:0] game_pixel_color;
-    wire [15:0] sidebar_pixel_color;
-    wire [9:0] sidebar_x_wide = h_count - 10'd296;
+    wire [9:0] sidebar_x_wide = h_count - 10'd352;
 
     racing_pixel_renderer u_renderer(
         .x(game_x), .y(game_y), .bg_scroll(bg_scroll_q8[17:8]),
@@ -264,7 +267,7 @@ module vga_game_top(
     );
 
     wire [15:0] pixel_color = game_region ? game_pixel_color :
-                              sidebar_region ? sidebar_pixel_color : 16'h0000;
+                              sidebar_region ? sidebar_pixel_latched : 16'h0000;
 
     assign vga_hsync = ~((h_count >= H_ACTIVE + H_FRONT) &&
                          (h_count < H_ACTIVE + H_FRONT + H_SYNC));
