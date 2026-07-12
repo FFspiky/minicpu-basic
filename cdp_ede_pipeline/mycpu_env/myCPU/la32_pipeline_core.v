@@ -969,9 +969,15 @@ module la32_pipeline_core(
     wire fetch_exc_fire = fetch_take_int | (!es_mem_op & trans_exc);
     wire fetch_fire = cpu_en & fetch_can_accept;
 
+    // Fetch is blocked while an EX-stage memory operation uses the shared
+    // translator. Keep that inactive data-translation result away from the
+    // instruction RAM address port, so implementation does not time a false
+    // ID/EX -> TLB -> instruction RAM single-cycle path.
+    wire [31:0] inst_sram_pa = trans_is_fetch ? trans_pa : fetch_pc;
+
     assign inst_sram_en    = fetch_fire & !fetch_exc_fire;
     assign inst_sram_we    = 4'b0000;
-    assign inst_sram_addr  = trans_pa;
+    assign inst_sram_addr  = inst_sram_pa;
     assign inst_sram_wdata = 32'b0;
 
     wire data_req_fire = cpu_en & ms_valid & !ms_exc &

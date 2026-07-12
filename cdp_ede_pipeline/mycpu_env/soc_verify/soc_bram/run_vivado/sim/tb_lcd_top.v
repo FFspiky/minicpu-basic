@@ -2,7 +2,10 @@
 `default_nettype none
 
 module tb_lcd_top;
-    localparam [31:0] LCD_SIM_END_PC = 32'h1c01018c;
+    // The STEP phase retires the reset-vector instruction at 1c000000.
+    // Stop RUN at the next deterministic commit so this remains a short
+    // control-path smoke test independent of the selected functional image.
+    localparam [31:0] LCD_SIM_END_PC = 32'h1c000004;
 
     reg         clk;
     reg         resetn;
