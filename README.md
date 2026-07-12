@@ -1,12 +1,14 @@
 # LoongArch CPU Design
 
-本仓库基于 Vivado 2019.2。当前已经把单周期 CPU 和五级流水线 CPU 拆成两个独立环境：
+本仓库基于 Vivado 2019.2。当前主线独立 CPU 工程是 `final_cpu/`，`cdp_ede_pipeline/` 继续保留为后续参考和验证环境。
 
+- `final_cpu/`：EXP23 流水线 CPU + BRAM SoC + LCD 工程入口，后续外设和小游戏扩展从这里继续。
 - `cdp_ede_local-master/`：单周期 CPU 环境
 - `cdp_ede_pipeline/`：五级流水线 CPU 环境
-- `minicpu_basic/`：旧 MiniCPU Vivado 工程，不参与当前 trace/上板流程
 
-两个 CPU 环境内部仍保持同样的工程结构：
+`final_cpu/` 是独立清理版工程，不包含 trace 对拍环境、gettrace 或功能测试编译目录；EXP23 镜像直接保存在 `final_cpu/mem/exp23/`。
+
+两个 CDP/EDE CPU 环境内部仍保持同样的工程结构：
 
 - `mycpu_env/gettrace/`：生成 `golden_trace.txt`
 - `mycpu_env/soc_verify/soc_dram/run_vivado/project/`：trace 对拍 Vivado 工程
@@ -29,10 +31,10 @@ D:\Vivado\Vivado\2019.2\bin\vivado.bat
 
 ## 生成功能测试程序
 
-默认生成 EXP6 到单周期环境：
+默认生成 EXP16 到单周期环境：
 
 ```powershell
-wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh
+wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh 16 cdp_ede_local-master
 ```
 
 指定实验号和环境目录：
@@ -143,6 +145,8 @@ D:\CPU_DESIGN\cdp_ede_pipeline\mycpu_env\soc_verify\soc_dram\run_vivado\project_
 - 单周期环境只保留单周期 `mycpu_top`。
 - 流水线环境只保留流水线 `mycpu_top` + `mycpu_pipeline`。
 - 两个环境的 trace 工程和上板工程互相独立，均由各自目录下的脚本生成。
+- `final_cpu/` 替代旧 `minicpu_basic/` 作为后续主线 CPU 工程。
+- `cdp_ede_pipeline/` 保持独立，不作为 `final_cpu/` 的工程内部依赖。
 - `project/`、`project_lcd/` 和 Vivado/IP 中间产物不纳入版本管理。
 
 ## Single-cycle board verification notes
@@ -150,7 +154,8 @@ D:\CPU_DESIGN\cdp_ede_pipeline\mycpu_env\soc_verify\soc_dram\run_vivado\project_
 - `cdp_ede_local-master/` is the single-cycle CPU environment.
 - Single-cycle board top now uses BRAM: `D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_bram\rtl\soc_lite_lcd_top.v`.
 - `soc_dram` is kept as a compatibility/reference environment.
-- Single-cycle acceptance uses EXP6. EXP8/EXP9 are reserved for the pipeline no-NOP hazard validation path.
+- Single-cycle acceptance uses EXP16 (`n1`~`n58`). EXP8/EXP9 are reserved for the pipeline no-NOP hazard validation path.
+- The single-cycle datapath was refactored to match the reviewed diagram: `cpu_control`, `imm_extend`, `regfile`, `alu`, `branch_unit`, `la32_lsu`, `la32_csr`, `la32_exception_ctrl`, and `la32_muldiv` are explicit modules. The review/correction notes are in `cdp_ede_local-master/mycpu_env/myCPU/SINGLE_CYCLE_DATAPATH_AUDIT.md`.
 - Single-cycle BRAM trace script:
 
 ```powershell

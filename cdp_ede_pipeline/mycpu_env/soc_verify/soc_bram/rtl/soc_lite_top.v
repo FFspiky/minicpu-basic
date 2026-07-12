@@ -352,16 +352,6 @@ begin
     end
 end
 
-inst_ram inst_ram
-(
-    .clka  (cpu_clk),
-    .ena   (cpu_inst_en),
-    .wea   (cpu_inst_we),
-    .addra (cpu_inst_addr[19:2]),
-    .dina  (cpu_inst_wdata),
-    .douta (cpu_inst_rdata)
-);
-
 bridge_1x2 bridge_1x2(
     .clk             (cpu_clk),
     .resetn          (cpu_resetn),
@@ -385,15 +375,148 @@ bridge_1x2 bridge_1x2(
     .conf_rdata      (conf_rdata)
 );
 
-data_ram data_ram
-(
-    .clka  (cpu_clk),
-    .ena   (data_sram_en),
-    .wea   (data_sram_we),
-    .addra (data_sram_addr[17:2]),
-    .dina  (data_sram_wdata),
-    .douta (data_sram_rdata)
-);
+generate if (SIMULATION)
+begin: sim_unified_ram
+    (* ram_style = "block" *) reg [31:0] ram [0:262143];
+    reg  [31:0] inst_rdata_r;
+    reg  [31:0] data_rdata_r;
+    integer     ram_i;
+
+    wire        inst_addr_need_highest_4bits;
+    wire [31:0] inst_addr_mapped;
+    wire        data_addr_need_highest_4bits;
+    wire [31:0] data_addr_mapped;
+    wire [17:0] inst_word_addr;
+    wire [17:0] data_word_addr;
+
+    assign inst_addr_need_highest_4bits = cpu_inst_addr[31:28] != 4'h0 &&
+                                          cpu_inst_addr[31:28] != 4'h1 &&
+                                          cpu_inst_addr[31:28] != 4'h7 &&
+                                          cpu_inst_addr[31:28] != 4'hb;
+    assign inst_addr_mapped = inst_addr_need_highest_4bits ?
+                              {12'b0, 4'hf, cpu_inst_addr[31:28], cpu_inst_addr[11:0]} :
+                              cpu_inst_addr;
+    assign inst_word_addr = inst_addr_mapped[19:2];
+
+    assign data_addr_need_highest_4bits = data_sram_addr[31:28] != 4'h0 &&
+                                          data_sram_addr[31:28] != 4'h1 &&
+                                          data_sram_addr[31:28] != 4'h7 &&
+                                          data_sram_addr[31:28] != 4'hb;
+    assign data_addr_mapped = data_addr_need_highest_4bits ?
+                              {12'b0, 4'hf, data_sram_addr[31:28], data_sram_addr[11:0]} :
+                              data_sram_addr;
+    assign data_word_addr = data_addr_mapped[19:2];
+
+    assign cpu_inst_rdata  = inst_rdata_r;
+    assign data_sram_rdata = data_rdata_r;
+
+    initial
+    begin
+        for (ram_i = 0; ram_i < 262144; ram_i = ram_i + 1)
+        begin
+            ram[ram_i] = 32'b0;
+        end
+        $readmemb("../../../../../../../../func/obj/inst_ram.mif", ram);
+    end
+
+    always @(posedge cpu_clk)
+    begin
+        if (cpu_inst_en)
+        begin
+            inst_rdata_r <= ram[inst_word_addr];
+        end
+
+        if (data_sram_en)
+        begin
+            data_rdata_r <= ram[data_word_addr];
+            if (data_sram_we[0])
+            begin
+                ram[data_word_addr][ 7: 0] <= data_sram_wdata[ 7: 0];
+            end
+            if (data_sram_we[1])
+            begin
+                ram[data_word_addr][15: 8] <= data_sram_wdata[15: 8];
+            end
+            if (data_sram_we[2])
+            begin
+                ram[data_word_addr][23:16] <= data_sram_wdata[23:16];
+            end
+            if (data_sram_we[3])
+            begin
+                ram[data_word_addr][31:24] <= data_sram_wdata[31:24];
+            end
+        end
+    end
+end
+else
+begin: board_unified_ram
+    (* ram_style = "block" *) reg [31:0] ram [0:262143];
+    reg  [31:0] inst_rdata_r;
+    reg  [31:0] data_rdata_r;
+
+    wire        inst_addr_need_highest_4bits;
+    wire [31:0] inst_addr_mapped;
+    wire        data_addr_need_highest_4bits;
+    wire [31:0] data_addr_mapped;
+    wire [17:0] inst_word_addr;
+    wire [17:0] data_word_addr;
+
+    assign inst_addr_need_highest_4bits = cpu_inst_addr[31:28] != 4'h0 &&
+                                          cpu_inst_addr[31:28] != 4'h1 &&
+                                          cpu_inst_addr[31:28] != 4'h7 &&
+                                          cpu_inst_addr[31:28] != 4'hb;
+    assign inst_addr_mapped = inst_addr_need_highest_4bits ?
+                              {12'b0, 4'hf, cpu_inst_addr[31:28], cpu_inst_addr[11:0]} :
+                              cpu_inst_addr;
+    assign inst_word_addr = inst_addr_mapped[19:2];
+
+    assign data_addr_need_highest_4bits = data_sram_addr[31:28] != 4'h0 &&
+                                          data_sram_addr[31:28] != 4'h1 &&
+                                          data_sram_addr[31:28] != 4'h7 &&
+                                          data_sram_addr[31:28] != 4'hb;
+    assign data_addr_mapped = data_addr_need_highest_4bits ?
+                              {12'b0, 4'hf, data_sram_addr[31:28], data_sram_addr[11:0]} :
+                              data_sram_addr;
+    assign data_word_addr = data_addr_mapped[19:2];
+
+    assign cpu_inst_rdata  = inst_rdata_r;
+    assign data_sram_rdata = data_rdata_r;
+
+    initial
+    begin
+        $readmemb("../../../../../../func/obj/inst_ram.mif", ram);
+    end
+
+    always @(posedge cpu_clk)
+    begin
+        if (cpu_inst_en)
+        begin
+            inst_rdata_r <= ram[inst_word_addr];
+        end
+
+        if (data_sram_en)
+        begin
+            data_rdata_r <= ram[data_word_addr];
+            if (data_sram_we[0])
+            begin
+                ram[data_word_addr][ 7: 0] <= data_sram_wdata[ 7: 0];
+            end
+            if (data_sram_we[1])
+            begin
+                ram[data_word_addr][15: 8] <= data_sram_wdata[15: 8];
+            end
+            if (data_sram_we[2])
+            begin
+                ram[data_word_addr][23:16] <= data_sram_wdata[23:16];
+            end
+            if (data_sram_we[3])
+            begin
+                ram[data_word_addr][31:24] <= data_sram_wdata[31:24];
+            end
+        end
+    end
+end
+endgenerate
 
 confreg #(.SIMULATION(SIMULATION)) u_confreg
 (

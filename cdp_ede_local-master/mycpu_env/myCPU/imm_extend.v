@@ -16,6 +16,7 @@ module imm_extend(
     localparam EXT_BR16 = 3'b011;
     localparam EXT_BR26 = 3'b100;
     localparam EXT_SI20 = 3'b101;
+    localparam EXT_UI12 = 3'b110;
 
     always @(*) begin
         case (ext_op)
@@ -24,6 +25,7 @@ module imm_extend(
             EXT_BR16: ext_imm = {{14{offs16[15]}}, offs16, 2'b00};
             EXT_BR26: ext_imm = {{4{offs26[25]}}, offs26, 2'b00};
             EXT_SI20: ext_imm = {si20, 12'b0};
+            EXT_UI12: ext_imm = {20'b0, imm12};
             EXT_NONE: ext_imm = 32'b0;
             default : ext_imm = 32'b0;
         endcase

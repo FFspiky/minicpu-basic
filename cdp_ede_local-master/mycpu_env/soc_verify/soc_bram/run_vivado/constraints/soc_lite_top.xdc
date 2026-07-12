@@ -123,5 +123,10 @@ set_property IOSTANDARD LVCMOS33 [get_ports {btn_step[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {num_data[*]}]
 
 
-set_false_path -from [get_clocks -of_objects [get_pins pll.clk_pll/inst/plle2_adv_inst/CLKOUT1]] -to [get_clocks -of_objects [get_pins pll.clk_pll/inst/plle2_adv_inst/CLKOUT0]]
-set_false_path -from [get_clocks -of_objects [get_pins pll.clk_pll/inst/plle2_adv_inst/CLKOUT0]] -to [get_clocks -of_objects [get_pins pll.clk_pll/inst/plle2_adv_inst/CLKOUT1]]
+set cpu_clk_obj   [get_clocks -quiet cpu_clk_clk_pll]
+set timer_clk_obj [get_clocks -quiet timer_clk_clk_pll]
+set lcd_clk_obj   [get_clocks -quiet clk]
+
+set_false_path -quiet -from $timer_clk_obj -to $cpu_clk_obj
+set_false_path -quiet -from $cpu_clk_obj -to $timer_clk_obj
+set_false_path -quiet -from $cpu_clk_obj -to $lcd_clk_obj
