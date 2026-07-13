@@ -29,6 +29,20 @@ module tb_nand_raw_controller;
     // nand_byte_io; this model deliberately responds without extra delay.
     always @(negedge we_n) begin
         if(cle) begin
+            // K9F1G08U0C requires exactly two column plus two row cycles for
+            // page operations and exactly two row cycles for block erase.
+            if(nand_io==8'h30 && address_count!==4) begin
+                $display("FAIL READ address cycles=%0d expected=4",address_count);
+                $fatal;
+            end
+            if(nand_io==8'h10 && address_count!==4) begin
+                $display("FAIL PROGRAM address cycles=%0d expected=4",address_count);
+                $fatal;
+            end
+            if(nand_io==8'hd0 && address_count!==2) begin
+                $display("FAIL ERASE address cycles=%0d expected=2",address_count);
+                $fatal;
+            end
             command=nand_io;
             if(nand_io==8'h80) begin address_count=0; program_index=0; end
             if(nand_io==8'h00) begin address_count=0; read_index=0; end

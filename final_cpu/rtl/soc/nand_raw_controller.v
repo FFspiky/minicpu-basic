@@ -28,8 +28,8 @@ module nand_raw_controller #(
     reg [2:0] after_sequence;
     reg [2:0] after_ready;
     reg [7:0] operation;
-    reg [7:0] sequence_data[0:6];
-    reg [1:0] sequence_kind[0:6]; // 0 command, 1 address
+    reg [7:0] sequence_data[0:5];
+    reg [1:0] sequence_kind[0:5]; // 0 command, 1 address
     reg [2:0] sequence_length, sequence_index;
     reg [31:0] page_address;
     reg [15:0] column_address;
@@ -207,22 +207,20 @@ module nand_raw_controller #(
                                 sequence_data[2]<={4'd0,column_address[11:8]};sequence_kind[2]<=1;
                                 sequence_data[3]<=page_address[7:0];sequence_kind[3]<=1;
                                 sequence_data[4]<=page_address[15:8];sequence_kind[4]<=1;
-                                sequence_data[5]<=page_address[23:16];sequence_kind[5]<=1;
                                 if(mmio_wdata[7:0]==OP_READ_PAGE)
                                 begin
-                                    sequence_data[6]<=8'h30;sequence_kind[6]<=0;
-                                    begin_sequence(7,A_WAIT_READ);
+                                    sequence_data[5]<=8'h30;sequence_kind[5]<=0;
+                                    begin_sequence(6,A_WAIT_READ);
                                 end
-                                else begin_sequence(6,A_WRITE_DATA);
+                                else begin_sequence(5,A_WRITE_DATA);
                             end
                             OP_ERASE_BLOCK:
                             begin
                                 sequence_data[0]<=8'h60;sequence_kind[0]<=0;
                                 sequence_data[1]<=page_address[7:0];sequence_kind[1]<=1;
                                 sequence_data[2]<=page_address[15:8];sequence_kind[2]<=1;
-                                sequence_data[3]<=page_address[23:16];sequence_kind[3]<=1;
-                                sequence_data[4]<=8'hd0;sequence_kind[4]<=0;
-                                begin_sequence(5,A_WAIT_STATUS);
+                                sequence_data[3]<=8'hd0;sequence_kind[3]<=0;
+                                begin_sequence(4,A_WAIT_STATUS);
                             end
                             default:begin operation_error<=1;state<=S_ERROR;end
                         endcase
