@@ -31,7 +31,40 @@ def _open_serial(port: str, baud: int = 115200):
 
 def _send_break_reset(handle) -> None:
     """Request the board monitor through the UART RX data path."""
+    # A READY frame from an earlier boot can still be buffered by the USB UART.
+    # Drop it before BREAK so wait_ready() can only accept the new boot's READY.
+    handle.reset_input_buffer()
     handle.send_break(duration=0.05)
+
+
+def _connect_board(port, args) -> Downloader:
+    downloader = Downloader(port, retries=args.retries, timeout=args.timeout)
+    if args.no_reset:
+        return downloader
+
+    # Most commands are issued while the VGA menu/monitor is already active.
+    # Prove liveness with an invalid-slot VERIFY before using BREAK; the NACK is
+    # expected and avoids an unnecessary, occasionally lossy warm reset.
+    port.reset_input_buffer()
+    probe_timeout = min(0.2, max(0.05, args.timeout))
+    # The board UART can require one same-sequence retransmission when waking
+    # from the menu polling loop.  Use two attempts before deciding that an
+    # application is running and BREAK is actually required.
+    probe = Downloader(port, retries=2, timeout=probe_timeout)
+    try:
+        probe.request(
+            FrameType.VERIFY, b"\xff", timeout=probe_timeout, retries=2
+        )
+    except RuntimeError:
+        return downloader
+    except (TimeoutError, ValueError):
+        pass
+    else:
+        return downloader
+
+    _send_break_reset(port)
+    downloader.wait_ready(max(5.0, args.timeout * args.retries))
+    return downloader
 
 
 def command_assemble(args) -> int:
@@ -116,11 +149,7 @@ def command_transfer(args, operation: FrameType) -> int:
     blob = Path(args.image).read_bytes()
     Image.unpack(blob)
     with _open_serial(args.port, args.baud) as port:
-        if not args.no_reset:
-            _send_break_reset(port)
-        downloader = Downloader(port, retries=args.retries, timeout=args.timeout)
-        if not args.no_reset:
-            downloader.wait_ready(max(5.0, args.timeout * args.retries))
+        downloader = _connect_board(port, args)
         downloader.transfer_image(blob, operation, getattr(args, "slot", 0))
     print("transfer complete")
     return 0
@@ -128,11 +157,7 @@ def command_transfer(args, operation: FrameType) -> int:
 
 def command_board(args, operation: FrameType) -> int:
     with _open_serial(args.port, args.baud) as port:
-        if not args.no_reset:
-            _send_break_reset(port)
-        downloader = Downloader(port, retries=args.retries, timeout=args.timeout)
-        if not args.no_reset:
-            downloader.wait_ready(max(5.0, args.timeout * args.retries))
+        downloader = _connect_board(port, args)
         if operation == FrameType.SCAN_DIRECTORIES:
             response = downloader.request(
                 operation,

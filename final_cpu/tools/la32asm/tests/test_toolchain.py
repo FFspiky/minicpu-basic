@@ -5,7 +5,7 @@ from unittest.mock import patch
 from la32asm.assembler import Assembler, AssemblyError
 from la32asm.image import Image, ImageError, ImageType
 from la32asm.protocol import Downloader, Frame, FrameType
-from la32asm.cli import _send_break_reset
+from la32asm.cli import _connect_board, _send_break_reset
 from la32asm.studio import _boot_monitor, _probe_monitor
 
 
@@ -225,12 +225,47 @@ class ProtocolTests(unittest.TestCase):
         class BreakSerial:
             def __init__(self):
                 self.durations = []
+                self.reset_count = 0
+            def reset_input_buffer(self):
+                self.reset_count += 1
             def send_break(self, duration):
                 self.durations.append(duration)
 
         stream = BreakSerial()
         _send_break_reset(stream)
+        self.assertEqual(stream.reset_count, 1)
         self.assertEqual(stream.durations, [0.05])
+
+    def test_cli_attaches_to_running_monitor_without_break(self):
+        class MonitorSerial:
+            def __init__(self):
+                self.data = bytearray()
+                self.breaks = 0
+                self.writes = 0
+            def reset_input_buffer(self):
+                self.data.clear()
+            def send_break(self, duration):
+                self.breaks += 1
+            def write(self, data):
+                self.writes += 1
+                if self.writes == 1:
+                    return len(data)
+                request = Frame.unpack(bytes(data))
+                self.data.extend(Frame(FrameType.NACK, request.sequence, b"\x07").pack())
+                return len(data)
+            def read(self, size):
+                chunk = self.data[:size]
+                del self.data[:size]
+                return bytes(chunk)
+
+        args = type("Args", (), {
+            "retries": 5, "timeout": 0.5, "no_reset": False,
+        })()
+        stream = MonitorSerial()
+        downloader = _connect_board(stream, args)
+        self.assertEqual(stream.breaks, 0)
+        self.assertEqual(stream.writes, 2)
+        self.assertEqual(downloader.retries, 5)
 
     def test_monitor_probe_does_not_require_ready_banner(self):
         class MonitorSerial:
