@@ -183,13 +183,18 @@ module confreg
     reg  [3:0]  menu_selected_slot_r;
     reg  [15:0] menu_slot_valid_r;
     reg  [7:0]  menu_status_r;
-    wire [7:0] uart_rx_data;
-    wire       uart_rx_valid;
-    wire       uart_rx_frame_error;
-    wire [7:0] uart_rx_front;
-    wire       uart_rx_empty;
-    wire       uart_rx_full;
-    wire       uart_rx_overflow;
+wire [7:0] uart_rx_data;
+wire       uart_rx_valid;
+wire       uart_rx_frame_error;
+wire [7:0] uart_rx_front;
+wire       uart_rx_empty;
+wire       uart_rx_full;
+wire       uart_rx_overflow;
+wire [7:0] uart_tx_front;
+wire       uart_tx_fifo_empty;
+wire       uart_tx_fifo_full;
+wire       uart_tx_fifo_overflow;
+wire       uart_tx_start;
     wire       uart_tx_ready;
     wire       uart_tx_busy;
     wire [31:0] uart_status;
@@ -546,8 +551,10 @@ assign write_uart_data = conf_wdata[7:0];
 wire       uart_fifo_clear = write_uart_ctrl & conf_wdata[8];
 wire       uart_overflow_clear = write_uart_status & conf_wdata[1];
 wire       uart_frame_error_clear = write_uart_status & conf_wdata[10];
-assign uart_status = {21'd0, uart_rx_frame_error, uart_tx_busy,
-                      uart_tx_ready, 6'd0, uart_rx_overflow, !uart_rx_empty};
+assign uart_status = {21'd0, uart_rx_frame_error,
+                      uart_tx_busy || !uart_tx_fifo_empty,
+                      !uart_tx_fifo_full, 6'd0,
+                      uart_rx_overflow, !uart_rx_empty};
 
 uart_rx #(.CLOCK_HZ(CPU_CLOCK_HZ), .BAUD(115_200)) u_uart_rx (
     .clk(clk), .resetn(resetn), .enable(uart_ctrl[0]),
@@ -563,9 +570,19 @@ uart_fifo #(.DEPTH(16), .ADDR_WIDTH(4)) u_uart_rx_fifo (
     .overflow(uart_rx_overflow)
 );
 
+assign uart_tx_start = !uart_tx_fifo_empty && uart_tx_ready;
+
+uart_fifo #(.DEPTH(16), .ADDR_WIDTH(4)) u_uart_tx_fifo (
+    .clk(clk), .resetn(resetn), .clear(1'b0),
+    .clear_overflow(1'b0), .push_data(write_uart_data),
+    .push(write_uart_valid), .pop(uart_tx_start),
+    .front(uart_tx_front), .empty(uart_tx_fifo_empty),
+    .full(uart_tx_fifo_full), .overflow(uart_tx_fifo_overflow)
+);
+
 uart_tx #(.CLOCK_HZ(CPU_CLOCK_HZ), .BAUD(115_200)) u_uart_tx (
     .clk(clk), .resetn(resetn), .enable(uart_ctrl[1]),
-    .data(write_uart_data), .valid(write_uart_valid && uart_tx_ready),
+    .data(uart_tx_front), .valid(uart_tx_start),
     .tx(uart_tx_o), .ready(uart_tx_ready), .busy(uart_tx_busy)
 );
 
