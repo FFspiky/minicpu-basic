@@ -117,8 +117,8 @@ module vga_scoreboard_renderer(
         rel_y = 0;
 
         // SCORE: 5 characters, scale 3, 18-pixel cells.
-        if (x >= 9'd127 && x < 9'd217 && y >= 9'd34 && y < 9'd55) begin
-            rel_x = x - 9'd127;
+        if (x >= 9'd99 && x < 9'd189 && y >= 9'd34 && y < 9'd55) begin
+            rel_x = x - 9'd99;
             rel_y = y - 9'd34;
             char_index = rel_x / 18;
             glyph_char = score_title_char(char_index[2:0]);
@@ -128,8 +128,8 @@ module vga_scoreboard_renderer(
             glyph_color = C_CYAN;
         end
         // Current score: 5 characters, scale 6, 36-pixel cells.
-        else if (x >= 9'd82 && x < 9'd262 && y >= 9'd78 && y < 9'd120) begin
-            rel_x = x - 9'd82;
+        else if (x >= 9'd54 && x < 9'd234 && y >= 9'd78 && y < 9'd120) begin
+            rel_x = x - 9'd54;
             rel_y = y - 9'd78;
             char_index = rel_x / 36;
             glyph_char = score_digit(current_score_bcd, char_index[2:0]);
@@ -139,8 +139,8 @@ module vga_scoreboard_renderer(
             glyph_color = C_GOLD;
         end
         // LEADERBOARD: 11 characters, scale 3.
-        else if (x >= 9'd73 && x < 9'd271 && y >= 9'd164 && y < 9'd185) begin
-            rel_x = x - 9'd73;
+        else if (x >= 9'd45 && x < 9'd243 && y >= 9'd164 && y < 9'd185) begin
+            rel_x = x - 9'd45;
             rel_y = y - 9'd164;
             char_index = rel_x / 18;
             glyph_char = title_char(char_index[3:0]);
@@ -150,8 +150,8 @@ module vga_scoreboard_renderer(
             glyph_color = C_CYAN;
         end
         // Eight rows: "N. 00000", scale 3.
-        else if (x >= 9'd100 && x < 9'd244 && y >= 9'd210 && y < 9'd458) begin
-            rel_x = x - 9'd100;
+        else if (x >= 9'd72 && x < 9'd216 && y >= 9'd210 && y < 9'd458) begin
+            rel_x = x - 9'd72;
             rel_y = y - 9'd210;
             row_index = rel_y / 31;
             if (row_index < 8 && (rel_y % 31) < 21) begin

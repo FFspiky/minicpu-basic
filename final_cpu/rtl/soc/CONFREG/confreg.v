@@ -470,8 +470,8 @@ assign sw_inter_data = {16'd0,
 //------------------------------{btn key}begin---------------------------//
 //btn key data
 reg [15:0] btn_key_r;
-reg [15:0] external_key_sync0;
-reg [15:0] external_key_sync1;
+(* ASYNC_REG = "TRUE" *) reg [15:0] external_key_sync0;
+(* ASYNC_REG = "TRUE" *) reg [15:0] external_key_sync1;
 assign btn_key_data = {16'd0, (btn_key_r | external_key_sync1)};
 
 always @(posedge clk)

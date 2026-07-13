@@ -4,6 +4,7 @@ module la32_pipeline_core(
     input  wire        clk,
     input  wire        resetn,
     input  wire        cpu_en,
+    input  wire [ 7:0] hw_int,
 
     output wire        inst_sram_en,
     output wire [ 3:0] inst_sram_we,
@@ -39,203 +40,127 @@ module la32_pipeline_core(
     localparam ECODE_BRK  = 6'h0c;
     localparam ECODE_INE  = 6'h0d;
 
-    integer i;
+    localparam ALU_ADD  = 4'b0000;
+    localparam ALU_SUB  = 4'b0001;
+    localparam ALU_SLT  = 4'b0010;
+    localparam ALU_SLTU = 4'b0011;
+    localparam ALU_SLL  = 4'b0100;
+    localparam ALU_SRL  = 4'b0101;
+    localparam ALU_SRA  = 4'b0110;
+    localparam ALU_AND  = 4'b0111;
+    localparam ALU_NOR  = 4'b1000;
+    localparam ALU_OR   = 4'b1001;
+    localparam ALU_XOR  = 4'b1010;
 
-    reg [31:0] rf [0:31];
+    wire [31:0] fetch_pc;
+    wire        fetch_pending;
 
-    reg [31:0] fetch_pc;
-    reg        fetch_pending;
-    reg [31:0] fetch_pending_pc;
-    reg        fetch_pending_exc;
-    reg [ 5:0] fetch_pending_ecode;
-    reg [ 8:0] fetch_pending_esubcode;
-    reg [31:0] fetch_pending_badv;
-    reg        fetch_pending_tlbr;
-    reg        fetch_pending_from_mem;
+    wire        fs_valid;
+    wire [31:0] fs_pc;
+    wire [31:0] fs_inst;
+    wire        fs_exc;
+    wire [ 5:0] fs_ecode;
+    wire [ 8:0] fs_esubcode;
+    wire [31:0] fs_badv;
+    wire        fs_tlbr;
 
-    reg        fs_valid;
-    reg [31:0] fs_pc;
-    reg [31:0] fs_inst;
-    reg        fs_exc;
-    reg [ 5:0] fs_ecode;
-    reg [ 8:0] fs_esubcode;
-    reg [31:0] fs_badv;
-    reg        fs_tlbr;
+    wire        ds_valid;
+    wire [31:0] ds_pc;
+    wire [31:0] ds_inst;
+    wire        ds_exc;
+    wire [ 5:0] ds_ecode;
+    wire [ 8:0] ds_esubcode;
+    wire [31:0] ds_badv;
+    wire        ds_tlbr;
 
-    reg        ds_valid;
-    reg [31:0] ds_pc;
-    reg [31:0] ds_inst;
-    reg        ds_exc;
-    reg [ 5:0] ds_ecode;
-    reg [ 8:0] ds_esubcode;
-    reg [31:0] ds_badv;
-    reg        ds_tlbr;
+    wire        es_valid;
+    wire [31:0] es_pc;
+    wire [31:0] es_inst;
+    wire        es_exc;
+    wire [ 5:0] es_ecode;
+    wire [ 8:0] es_esubcode;
+    wire [31:0] es_badv;
+    wire        es_tlbr;
+    wire [31:0] es_rj_value;
+    wire [31:0] es_rk_value;
+    wire [31:0] es_rd_value;
+    wire [ 4:0] es_rd;
+    wire [ 4:0] es_rj;
+    wire [ 4:0] es_rk;
+    wire [13:0] es_csr_num;
+    wire [ 4:0] es_invtlb_op;
+    wire        es_serial;
+    wire [ 4:0] es_dest;
+    wire        es_dec_is_load;
+    wire        es_dec_rf_we;
 
-    reg        es_valid;
-    reg [31:0] es_pc;
-    reg [31:0] es_inst;
-    reg        es_exc;
-    reg [ 5:0] es_ecode;
-    reg [ 8:0] es_esubcode;
-    reg [31:0] es_badv;
-    reg        es_tlbr;
-    reg [31:0] es_rj_value;
-    reg [31:0] es_rk_value;
-    reg [31:0] es_rd_value;
-    reg [ 4:0] es_rd;
-    reg [ 4:0] es_rj;
-    reg [ 4:0] es_rk;
-    reg [13:0] es_csr_num;
-    reg [ 4:0] es_invtlb_op;
-    reg        es_serial;
+    wire es_inst_add_w, es_inst_sub_w, es_inst_slt, es_inst_sltu;
+    wire es_inst_nor, es_inst_and, es_inst_or, es_inst_xor;
+    wire es_inst_sll_w, es_inst_srl_w, es_inst_sra_w;
+    wire es_inst_mul_w, es_inst_mulh_w, es_inst_mulh_wu;
+    wire es_inst_div_w, es_inst_div_wu, es_inst_mod_w, es_inst_mod_wu;
+    wire es_inst_slli_w, es_inst_srli_w, es_inst_srai_w;
+    wire es_inst_addi_w, es_inst_slti, es_inst_sltui;
+    wire es_inst_andi, es_inst_ori, es_inst_xori;
+    wire es_inst_lu12i_w, es_inst_pcaddu12i;
+    wire es_inst_ld_b, es_inst_ld_h, es_inst_ld_w;
+    wire es_inst_ld_bu, es_inst_ld_hu;
+    wire es_inst_st_b, es_inst_st_h, es_inst_st_w;
+    wire es_inst_beq, es_inst_bne, es_inst_blt, es_inst_bge;
+    wire es_inst_bltu, es_inst_bgeu, es_inst_jirl, es_inst_b, es_inst_bl;
+    wire es_inst_csrrd, es_inst_csrwr, es_inst_csrxchg;
+    wire es_inst_syscall, es_inst_break, es_inst_ertn;
+    wire es_inst_rdcntvl_w, es_inst_rdcntvh_w, es_inst_rdcntid_w;
+    wire es_inst_tlbsrch, es_inst_tlbrd, es_inst_tlbwr;
+    wire es_inst_tlbfill, es_inst_invtlb, es_inst_cacop, es_inst_valid;
 
-    reg es_inst_add_w;
-    reg es_inst_sub_w;
-    reg es_inst_slt;
-    reg es_inst_sltu;
-    reg es_inst_nor;
-    reg es_inst_and;
-    reg es_inst_or;
-    reg es_inst_xor;
-    reg es_inst_sll_w;
-    reg es_inst_srl_w;
-    reg es_inst_sra_w;
-    reg es_inst_mul_w;
-    reg es_inst_mulh_w;
-    reg es_inst_mulh_wu;
-    reg es_inst_div_w;
-    reg es_inst_div_wu;
-    reg es_inst_mod_w;
-    reg es_inst_mod_wu;
-    reg es_inst_slli_w;
-    reg es_inst_srli_w;
-    reg es_inst_srai_w;
-    reg es_inst_addi_w;
-    reg es_inst_slti;
-    reg es_inst_sltui;
-    reg es_inst_andi;
-    reg es_inst_ori;
-    reg es_inst_xori;
-    reg es_inst_lu12i_w;
-    reg es_inst_pcaddu12i;
-    reg es_inst_ld_b;
-    reg es_inst_ld_h;
-    reg es_inst_ld_w;
-    reg es_inst_ld_bu;
-    reg es_inst_ld_hu;
-    reg es_inst_st_b;
-    reg es_inst_st_h;
-    reg es_inst_st_w;
-    reg es_inst_beq;
-    reg es_inst_bne;
-    reg es_inst_blt;
-    reg es_inst_bge;
-    reg es_inst_bltu;
-    reg es_inst_bgeu;
-    reg es_inst_jirl;
-    reg es_inst_b;
-    reg es_inst_bl;
-    reg es_inst_csrrd;
-    reg es_inst_csrwr;
-    reg es_inst_csrxchg;
-    reg es_inst_syscall;
-    reg es_inst_break;
-    reg es_inst_ertn;
-    reg es_inst_rdcntvl_w;
-    reg es_inst_rdcntvh_w;
-    reg es_inst_rdcntid_w;
-    reg es_inst_tlbsrch;
-    reg es_inst_tlbrd;
-    reg es_inst_tlbwr;
-    reg es_inst_tlbfill;
-    reg es_inst_invtlb;
-    reg es_inst_cacop;
-    reg es_inst_valid;
-    reg es_muldiv_started;
+    wire        ms_valid;
+    wire [31:0] ms_pc, ms_inst;
+    wire        ms_exc;
+    wire [ 5:0] ms_ecode;
+    wire [ 8:0] ms_esubcode;
+    wire [31:0] ms_badv;
+    wire        ms_tlbr, ms_ertn, ms_serial, ms_flush_after;
+    wire        ms_rf_we;
+    wire [ 4:0] ms_rf_waddr;
+    wire [31:0] ms_rf_wdata;
+    wire        ms_mem_load, ms_mem_store, ms_mem_req_sent;
+    wire [31:0] ms_mem_va, ms_mem_pa, ms_store_data;
+    wire        ms_op_ld_b, ms_op_ld_h, ms_op_ld_w, ms_op_ld_bu, ms_op_ld_hu;
+    wire        ms_op_st_b, ms_op_st_h, ms_op_st_w;
+    wire        ms_csr_we;
+    wire [13:0] ms_csr_waddr;
+    wire [31:0] ms_csr_wmask, ms_csr_wdata;
+    wire        ms_tlbidx_we, ms_tlbehi_we, ms_tlbelo0_we, ms_tlbelo1_we;
+    wire [31:0] ms_tlbidx_wdata, ms_tlbehi_wdata;
+    wire [31:0] ms_tlbelo0_wdata, ms_tlbelo1_wdata;
+    wire        ms_asid_we;
+    wire [31:0] ms_asid_wdata;
+    wire        ms_op_tlbwr, ms_op_tlbfill, ms_op_invtlb;
+    wire [ 4:0] ms_invtlb_op;
+    wire [31:0] ms_invtlb_asid, ms_invtlb_va;
 
-    reg        ms_valid;
-    reg [31:0] ms_pc;
-    reg [31:0] ms_inst;
-    reg        ms_exc;
-    reg [ 5:0] ms_ecode;
-    reg [ 8:0] ms_esubcode;
-    reg [31:0] ms_badv;
-    reg        ms_tlbr;
-    reg        ms_ertn;
-    reg        ms_serial;
-    reg        ms_flush_after;
-    reg        ms_rf_we;
-    reg [ 4:0] ms_rf_waddr;
-    reg [31:0] ms_rf_wdata;
-    reg        ms_mem_load;
-    reg        ms_mem_store;
-    reg        ms_mem_req_sent;
-    reg [31:0] ms_mem_va;
-    reg [31:0] ms_mem_pa;
-    reg [31:0] ms_store_data;
-    reg        ms_op_ld_b;
-    reg        ms_op_ld_h;
-    reg        ms_op_ld_w;
-    reg        ms_op_ld_bu;
-    reg        ms_op_ld_hu;
-    reg        ms_op_st_b;
-    reg        ms_op_st_h;
-    reg        ms_op_st_w;
-    reg        ms_csr_we;
-    reg [13:0] ms_csr_waddr;
-    reg [31:0] ms_csr_wmask;
-    reg [31:0] ms_csr_wdata;
-    reg        ms_tlbidx_we;
-    reg [31:0] ms_tlbidx_wdata;
-    reg        ms_tlbehi_we;
-    reg [31:0] ms_tlbehi_wdata;
-    reg        ms_tlbelo0_we;
-    reg [31:0] ms_tlbelo0_wdata;
-    reg        ms_tlbelo1_we;
-    reg [31:0] ms_tlbelo1_wdata;
-    reg        ms_asid_we;
-    reg [31:0] ms_asid_wdata;
-    reg        ms_op_tlbwr;
-    reg        ms_op_tlbfill;
-    reg        ms_op_invtlb;
-    reg [ 4:0] ms_invtlb_op;
-    reg [31:0] ms_invtlb_asid;
-    reg [31:0] ms_invtlb_va;
-
-    reg        ws_valid;
-    reg [31:0] ws_pc;
-    reg [31:0] ws_inst;
-    reg        ws_exc;
-    reg [ 5:0] ws_ecode;
-    reg [ 8:0] ws_esubcode;
-    reg [31:0] ws_badv;
-    reg        ws_tlbr;
-    reg        ws_ertn;
-    reg        ws_serial;
-    reg        ws_flush_after;
-    reg        ws_rf_we;
-    reg [ 4:0] ws_rf_waddr;
-    reg [31:0] ws_rf_wdata;
-    reg        ws_csr_we;
-    reg [13:0] ws_csr_waddr;
-    reg [31:0] ws_csr_wmask;
-    reg [31:0] ws_csr_wdata;
-    reg        ws_tlbidx_we;
-    reg [31:0] ws_tlbidx_wdata;
-    reg        ws_tlbehi_we;
-    reg [31:0] ws_tlbehi_wdata;
-    reg        ws_tlbelo0_we;
-    reg [31:0] ws_tlbelo0_wdata;
-    reg        ws_tlbelo1_we;
-    reg [31:0] ws_tlbelo1_wdata;
-    reg        ws_asid_we;
-    reg [31:0] ws_asid_wdata;
-    reg        ws_op_tlbwr;
-    reg        ws_op_tlbfill;
-    reg        ws_op_invtlb;
-    reg [ 4:0] ws_invtlb_op;
-    reg [31:0] ws_invtlb_asid;
-    reg [31:0] ws_invtlb_va;
+    wire        ws_valid;
+    wire [31:0] ws_pc, ws_inst;
+    wire        ws_exc;
+    wire [ 5:0] ws_ecode;
+    wire [ 8:0] ws_esubcode;
+    wire [31:0] ws_badv;
+    wire        ws_tlbr, ws_ertn, ws_serial, ws_flush_after;
+    wire        ws_rf_we;
+    wire [ 4:0] ws_rf_waddr;
+    wire [31:0] ws_rf_wdata;
+    wire        ws_csr_we;
+    wire [13:0] ws_csr_waddr;
+    wire [31:0] ws_csr_wmask, ws_csr_wdata;
+    wire        ws_tlbidx_we, ws_tlbehi_we, ws_tlbelo0_we, ws_tlbelo1_we;
+    wire [31:0] ws_tlbidx_wdata, ws_tlbehi_wdata;
+    wire [31:0] ws_tlbelo0_wdata, ws_tlbelo1_wdata;
+    wire        ws_asid_we;
+    wire [31:0] ws_asid_wdata;
+    wire        ws_op_tlbwr, ws_op_tlbfill, ws_op_invtlb;
+    wire [ 4:0] ws_invtlb_op;
+    wire [31:0] ws_invtlb_asid, ws_invtlb_va;
 
     wire [4:0] ds_rd;
     wire [4:0] ds_rj;
@@ -306,9 +231,18 @@ module la32_pipeline_core(
     wire ds_inst_invtlb;
     wire ds_inst_cacop;
     wire ds_inst_valid;
+    wire ds_use_rj;
+    wire ds_use_rk;
+    wire ds_use_rd;
+    wire [4:0] ds_dest;
+    wire ds_dec_is_load;
+    wire ds_dec_rf_we;
+    wire ds_serial;
 
     la32_decoder u_decoder_ds(
         .inst(ds_inst),
+        .valid(ds_valid),
+        .exception(ds_exc),
         .rd(ds_rd),
         .rj(ds_rj),
         .rk(ds_rk),
@@ -377,7 +311,14 @@ module la32_pipeline_core(
         .inst_tlbfill(ds_inst_tlbfill),
         .inst_invtlb(ds_inst_invtlb),
         .inst_cacop(ds_inst_cacop),
-        .inst_valid(ds_inst_valid)
+        .inst_valid(ds_inst_valid),
+        .use_rj(ds_use_rj),
+        .use_rk(ds_use_rk),
+        .use_rd(ds_use_rd),
+        .dest(ds_dest),
+        .is_load(ds_dec_is_load),
+        .rf_we(ds_dec_rf_we),
+        .serial(ds_serial)
     );
 
     wire [13:0] csr_read_addr = es_inst_rdcntid_w ? 14'h040 : es_csr_num;
@@ -400,22 +341,58 @@ module la32_pipeline_core(
     wire [31:0] csr_dmw0;
     wire [31:0] csr_dmw1;
 
-    wire wb_exc_commit      = ws_valid & ws_exc;
-    wire wb_ertn_commit     = ws_valid & !ws_exc & ws_ertn;
-    wire wb_csr_commit      = ws_valid & !ws_exc & !ws_ertn & ws_csr_we;
-    wire wb_tlbidx_commit   = ws_valid & !ws_exc & !ws_ertn & ws_tlbidx_we;
-    wire wb_tlbehi_commit   = ws_valid & !ws_exc & !ws_ertn & ws_tlbehi_we;
-    wire wb_tlbelo0_commit  = ws_valid & !ws_exc & !ws_ertn & ws_tlbelo0_we;
-    wire wb_tlbelo1_commit  = ws_valid & !ws_exc & !ws_ertn & ws_tlbelo1_we;
-    wire wb_asid_commit     = ws_valid & !ws_exc & !ws_ertn & ws_asid_we;
-    wire wb_tlbwr_commit    = ws_valid & !ws_exc & !ws_ertn & ws_op_tlbwr;
-    wire wb_tlbfill_commit  = ws_valid & !ws_exc & !ws_ertn & ws_op_tlbfill;
-    wire wb_invtlb_commit   = ws_valid & !ws_exc & !ws_ertn & ws_op_invtlb;
+    la32_stable_counter u_stable_counter(
+        .clk(clk),
+        .resetn(resetn),
+        .cpu_en(cpu_en),
+        .value(stable_counter)
+    );
+
+    wire wb_exc_commit;
+    wire wb_ertn_commit;
+    wire rf_we_final;
+    wire wb_csr_commit;
+    wire wb_tlbidx_commit;
+    wire wb_tlbehi_commit;
+    wire wb_tlbelo0_commit;
+    wire wb_tlbelo1_commit;
+    wire wb_asid_commit;
+    wire wb_tlbwr_commit;
+    wire wb_tlbfill_commit;
+    wire wb_invtlb_commit;
+
+    la32_commit_control u_commit_control(
+        .ws_valid(ws_valid),
+        .ws_exception(ws_exc),
+        .ws_ertn(ws_ertn),
+        .ws_rf_we(ws_rf_we),
+        .ws_rf_waddr(ws_rf_waddr),
+        .ws_csr_we(ws_csr_we),
+        .ws_tlbidx_we(ws_tlbidx_we),
+        .ws_tlbehi_we(ws_tlbehi_we),
+        .ws_tlbelo0_we(ws_tlbelo0_we),
+        .ws_tlbelo1_we(ws_tlbelo1_we),
+        .ws_asid_we(ws_asid_we),
+        .ws_tlbwr(ws_op_tlbwr),
+        .ws_tlbfill(ws_op_tlbfill),
+        .ws_invtlb(ws_op_invtlb),
+        .rf_we(rf_we_final),
+        .csr_we(wb_csr_commit),
+        .tlbidx_we(wb_tlbidx_commit),
+        .tlbehi_we(wb_tlbehi_commit),
+        .tlbelo0_we(wb_tlbelo0_commit),
+        .tlbelo1_we(wb_tlbelo1_commit),
+        .asid_we(wb_asid_commit),
+        .tlbwr(wb_tlbwr_commit),
+        .tlbfill(wb_tlbfill_commit),
+        .invtlb(wb_invtlb_commit)
+    );
 
     la32_csr u_csr(
         .clk(clk),
         .resetn(resetn),
         .cpu_en(cpu_en),
+        .hw_int(hw_int),
         .read_addr(csr_read_addr),
         .read_data(csr_read_data),
         .csr_we(wb_csr_commit),
@@ -460,11 +437,20 @@ module la32_pipeline_core(
         .csr_dmw1(csr_dmw1)
     );
 
-    wire [31:0] es_si12       = {{20{es_inst[21]}}, es_inst[21:10]};
-    wire [31:0] es_ui12       = {20'b0, es_inst[21:10]};
-    wire [31:0] es_si16_shift = {{14{es_inst[25]}}, es_inst[25:10], 2'b0};
-    wire [31:0] es_si26_shift = {{4{es_inst[9]}}, es_inst[9:0], es_inst[25:10], 2'b0};
-    wire [31:0] es_si20_shift = {es_inst[24:5], 12'b0};
+    wire [31:0] es_si12;
+    wire [31:0] es_ui12;
+    wire [31:0] es_si16_shift;
+    wire [31:0] es_si26_shift;
+    wire [31:0] es_si20_shift;
+
+    la32_imm_gen u_imm_gen_es(
+        .inst(es_inst),
+        .si12(es_si12),
+        .ui12(es_ui12),
+        .offs16(es_si16_shift),
+        .offs26(es_si26_shift),
+        .si20(es_si20_shift)
+    );
     wire [31:0] es_pc_plus4   = es_pc + 32'd4;
     wire [31:0] es_mem_va     = es_rj_value + es_si12;
 
@@ -548,6 +534,12 @@ module la32_pipeline_core(
     wire [31:0] lsu_load_result;
 
     la32_lsu u_lsu(
+        .check_addr(es_mem_va),
+        .check_ld_h(es_inst_ld_h),
+        .check_ld_w(es_inst_ld_w),
+        .check_ld_hu(es_inst_ld_hu),
+        .check_st_h(es_inst_st_h),
+        .check_st_w(es_inst_st_w),
         .addr(ms_mem_va),
         .store_data(ms_store_data),
         .load_data(data_sram_rdata),
@@ -574,9 +566,27 @@ module la32_pipeline_core(
     wire        muldiv_start;
     wire        muldiv_clear;
 
-    wire signed [31:0] es_s_rj = es_rj_value;
-    wire signed [31:0] es_s_rk = es_rk_value;
-    wire signed [31:0] es_s_rd = es_rd_value;
+    wire [31:0] es_alu_src1 = es_inst_lu12i_w ? 32'b0 :
+                              es_inst_pcaddu12i ? es_pc : es_rj_value;
+    wire [31:0] es_alu_src2 = (es_inst_slli_w | es_inst_srli_w |
+                               es_inst_srai_w) ? {27'b0, es_rk} :
+                              (es_inst_addi_w | es_inst_slti |
+                               es_inst_sltui) ? es_si12 :
+                              (es_inst_andi | es_inst_ori |
+                               es_inst_xori) ? es_ui12 :
+                              (es_inst_lu12i_w | es_inst_pcaddu12i) ?
+                               es_si20_shift : es_rk_value;
+    wire [3:0] es_alu_op = es_inst_sub_w ? ALU_SUB :
+                           (es_inst_slt | es_inst_slti) ? ALU_SLT :
+                           (es_inst_sltu | es_inst_sltui) ? ALU_SLTU :
+                           (es_inst_sll_w | es_inst_slli_w) ? ALU_SLL :
+                           (es_inst_srl_w | es_inst_srli_w) ? ALU_SRL :
+                           (es_inst_sra_w | es_inst_srai_w) ? ALU_SRA :
+                           (es_inst_and | es_inst_andi) ? ALU_AND :
+                           es_inst_nor ? ALU_NOR :
+                           (es_inst_or | es_inst_ori) ? ALU_OR :
+                           (es_inst_xor | es_inst_xori) ? ALU_XOR : ALU_ADD;
+    wire [31:0] es_alu_result;
 
     reg        ex_rf_we;
     reg [ 4:0] ex_rf_waddr;
@@ -610,27 +620,12 @@ module la32_pipeline_core(
     reg        ex_op_invtlb;
     reg [31:0] ex_result;
 
-    wire es_align_error = ((es_inst_ld_h | es_inst_ld_hu | es_inst_st_h) & es_mem_va[0]) |
-                          ((es_inst_ld_w | es_inst_st_w) & |es_mem_va[1:0]);
-    wire es_branch_cond_taken =
-        (es_inst_beq  & (es_rj_value == es_rd_value)) |
-        (es_inst_bne  & (es_rj_value != es_rd_value)) |
-        (es_inst_blt  & (es_s_rj < es_s_rd)) |
-        (es_inst_bge  & (es_s_rj >= es_s_rd)) |
-        (es_inst_bltu & (es_rj_value < es_rd_value)) |
-        (es_inst_bgeu & (es_rj_value >= es_rd_value));
-    wire es_is_cond_branch = es_inst_beq | es_inst_bne | es_inst_blt |
-                             es_inst_bge | es_inst_bltu | es_inst_bgeu;
-    wire es_branch_redirect = es_valid & !es_exc & es_inst_valid &
-                              (es_inst_b | es_inst_bl | es_inst_jirl |
-                               (es_is_cond_branch & es_branch_cond_taken));
-    wire [31:0] es_branch_target = es_inst_jirl ? (es_rj_value + es_si16_shift) :
-                                   (es_inst_b | es_inst_bl) ? (es_pc + es_si26_shift) :
-                                   (es_pc + es_si16_shift);
+    wire es_branch_redirect;
+    wire [31:0] es_branch_target;
 
     always @(*) begin
         ex_rf_we         = 1'b0;
-        ex_rf_waddr      = es_rd;
+        ex_rf_waddr      = es_dest;
         ex_rf_wdata      = 32'b0;
         ex_exc           = es_exc;
         ex_ecode         = es_ecode;
@@ -682,7 +677,7 @@ module la32_pipeline_core(
                 ex_ecode = ECODE_INE;
             end
             else if (es_inst_load | es_inst_store | es_inst_cacop) begin
-                if (es_align_error && !es_inst_cacop) begin
+                if (lsu_align_error && !es_inst_cacop) begin
                     ex_exc  = 1'b1;
                     ex_ecode = ECODE_ALE;
                     ex_badv = es_mem_va;
@@ -701,12 +696,12 @@ module la32_pipeline_core(
                     ex_mem_load  = es_inst_load;
                     ex_mem_store = es_inst_store;
                     ex_rf_we     = es_inst_load;
-                    ex_rf_waddr  = es_rd;
+                    ex_rf_waddr  = es_dest;
                 end
             end
             else if (es_inst_csrrd | es_inst_csrwr | es_inst_csrxchg) begin
                 ex_rf_we     = 1'b1;
-                ex_rf_waddr  = es_rd;
+                ex_rf_waddr  = es_dest;
                 ex_rf_wdata  = csr_read_data;
                 ex_csr_we    = es_inst_csrwr | es_inst_csrxchg;
                 ex_csr_waddr = es_csr_num;
@@ -744,71 +739,15 @@ module la32_pipeline_core(
                 end
             end
             else begin
-                if (es_inst_add_w) begin
-                    ex_result = es_rj_value + es_rk_value;
-                end
-                else if (es_inst_sub_w) begin
-                    ex_result = es_rj_value - es_rk_value;
-                end
-                else if (es_inst_slt) begin
-                    ex_result = {31'b0, es_s_rj < es_s_rk};
-                end
-                else if (es_inst_sltu) begin
-                    ex_result = {31'b0, es_rj_value < es_rk_value};
-                end
-                else if (es_inst_nor) begin
-                    ex_result = ~(es_rj_value | es_rk_value);
-                end
-                else if (es_inst_and) begin
-                    ex_result = es_rj_value & es_rk_value;
-                end
-                else if (es_inst_or) begin
-                    ex_result = es_rj_value | es_rk_value;
-                end
-                else if (es_inst_xor) begin
-                    ex_result = es_rj_value ^ es_rk_value;
-                end
-                else if (es_inst_sll_w) begin
-                    ex_result = es_rj_value << es_rk_value[4:0];
-                end
-                else if (es_inst_srl_w) begin
-                    ex_result = es_rj_value >> es_rk_value[4:0];
-                end
-                else if (es_inst_sra_w) begin
-                    ex_result = es_s_rj >>> es_rk_value[4:0];
-                end
-                else if (es_inst_slli_w) begin
-                    ex_result = es_rj_value << es_rk;
-                end
-                else if (es_inst_srli_w) begin
-                    ex_result = es_rj_value >> es_rk;
-                end
-                else if (es_inst_srai_w) begin
-                    ex_result = es_s_rj >>> es_rk;
-                end
-                else if (es_inst_addi_w) begin
-                    ex_result = es_rj_value + es_si12;
-                end
-                else if (es_inst_slti) begin
-                    ex_result = {31'b0, es_s_rj < $signed(es_si12)};
-                end
-                else if (es_inst_sltui) begin
-                    ex_result = {31'b0, es_rj_value < es_si12};
-                end
-                else if (es_inst_andi) begin
-                    ex_result = es_rj_value & es_ui12;
-                end
-                else if (es_inst_ori) begin
-                    ex_result = es_rj_value | es_ui12;
-                end
-                else if (es_inst_xori) begin
-                    ex_result = es_rj_value ^ es_ui12;
-                end
-                else if (es_inst_lu12i_w) begin
-                    ex_result = es_si20_shift;
-                end
-                else if (es_inst_pcaddu12i) begin
-                    ex_result = es_pc + es_si20_shift;
+                if (es_inst_add_w | es_inst_sub_w | es_inst_slt |
+                    es_inst_sltu | es_inst_nor | es_inst_and |
+                    es_inst_or | es_inst_xor | es_inst_sll_w |
+                    es_inst_srl_w | es_inst_sra_w | es_inst_slli_w |
+                    es_inst_srli_w | es_inst_srai_w | es_inst_addi_w |
+                    es_inst_slti | es_inst_sltui | es_inst_andi |
+                    es_inst_ori | es_inst_xori | es_inst_lu12i_w |
+                    es_inst_pcaddu12i) begin
+                    ex_result = es_alu_result;
                 end
                 else if (es_inst_mul_w | es_inst_mulh_w | es_inst_mulh_wu |
                          es_inst_div_w | es_inst_div_wu | es_inst_mod_w | es_inst_mod_wu) begin
@@ -838,30 +777,15 @@ module la32_pipeline_core(
                            es_inst_lu12i_w | es_inst_pcaddu12i |
                            es_inst_rdcntvl_w | es_inst_rdcntvh_w | es_inst_rdcntid_w |
                            es_inst_bl | es_inst_jirl;
-                ex_rf_waddr = es_inst_bl ? 5'd1 :
-                               es_inst_rdcntid_w ? es_rj : es_rd;
+                ex_rf_waddr = es_dest;
                 ex_rf_wdata = ex_result;
             end
         end
     end
 
-    wire        es_will_load = es_valid & !es_exc & es_inst_load;
-    wire        es_will_rf_we = es_valid & !es_exc &
-        (es_inst_add_w | es_inst_sub_w | es_inst_slt | es_inst_sltu |
-         es_inst_nor | es_inst_and | es_inst_or | es_inst_xor |
-         es_inst_sll_w | es_inst_srl_w | es_inst_sra_w |
-         es_inst_mul_w | es_inst_mulh_w | es_inst_mulh_wu |
-         es_inst_div_w | es_inst_div_wu | es_inst_mod_w | es_inst_mod_wu |
-         es_inst_slli_w | es_inst_srli_w | es_inst_srai_w |
-         es_inst_addi_w | es_inst_slti | es_inst_sltui |
-         es_inst_andi | es_inst_ori | es_inst_xori |
-         es_inst_lu12i_w | es_inst_pcaddu12i |
-         es_inst_ld_b | es_inst_ld_h | es_inst_ld_w | es_inst_ld_bu | es_inst_ld_hu |
-         es_inst_csrrd | es_inst_csrwr | es_inst_csrxchg |
-         es_inst_rdcntvl_w | es_inst_rdcntvh_w | es_inst_rdcntid_w |
-         es_inst_bl | es_inst_jirl);
-    wire [4:0] es_will_waddr = es_inst_bl ? 5'd1 :
-                                es_inst_rdcntid_w ? es_rj : es_rd;
+    wire        es_will_load = es_valid & !es_exc & es_dec_is_load;
+    wire        es_will_rf_we = es_valid & !es_exc & es_dec_rf_we;
+    wire [4:0] es_will_waddr = es_dest;
     wire       es_forward_valid = es_will_rf_we & !es_will_load &
                                   (!es_muldiv_op | muldiv_done) &
                                   (es_will_waddr != 5'b0);
@@ -872,98 +796,135 @@ module la32_pipeline_core(
     wire       ws_forward_valid = ws_valid & !ws_exc & ws_rf_we &
                                   (ws_rf_waddr != 5'b0);
 
-    wire ds_use_rj = ds_inst_add_w | ds_inst_sub_w | ds_inst_slt | ds_inst_sltu |
-                     ds_inst_nor | ds_inst_and | ds_inst_or | ds_inst_xor |
-                     ds_inst_sll_w | ds_inst_srl_w | ds_inst_sra_w |
-                     ds_inst_mul_w | ds_inst_mulh_w | ds_inst_mulh_wu |
-                     ds_inst_div_w | ds_inst_div_wu | ds_inst_mod_w | ds_inst_mod_wu |
-                     ds_inst_slli_w | ds_inst_srli_w | ds_inst_srai_w |
-                     ds_inst_addi_w | ds_inst_slti | ds_inst_sltui |
-                     ds_inst_andi | ds_inst_ori | ds_inst_xori |
-                     ds_inst_ld_b | ds_inst_ld_h | ds_inst_ld_w |
-                     ds_inst_ld_bu | ds_inst_ld_hu |
-                     ds_inst_st_b | ds_inst_st_h | ds_inst_st_w |
-                     ds_inst_beq | ds_inst_bne | ds_inst_blt | ds_inst_bge |
-                     ds_inst_bltu | ds_inst_bgeu | ds_inst_jirl |
-                     ds_inst_csrxchg | ds_inst_invtlb | ds_inst_cacop;
-    wire ds_use_rk = ds_inst_add_w | ds_inst_sub_w | ds_inst_slt | ds_inst_sltu |
-                     ds_inst_nor | ds_inst_and | ds_inst_or | ds_inst_xor |
-                     ds_inst_sll_w | ds_inst_srl_w | ds_inst_sra_w |
-                     ds_inst_mul_w | ds_inst_mulh_w | ds_inst_mulh_wu |
-                     ds_inst_div_w | ds_inst_div_wu | ds_inst_mod_w | ds_inst_mod_wu |
-                     ds_inst_invtlb;
-    wire ds_use_rd = ds_inst_st_b | ds_inst_st_h | ds_inst_st_w |
-                     ds_inst_beq | ds_inst_bne | ds_inst_blt | ds_inst_bge |
-                     ds_inst_bltu | ds_inst_bgeu |
-                     ds_inst_csrwr | ds_inst_csrxchg;
 
-    wire ds_rj_wait_load = ds_use_rj & (ds_rj != 5'b0) &
-                           ((es_will_load & (es_will_waddr == ds_rj)) |
-                            (ms_valid & ms_mem_load & ms_rf_we & (ms_rf_waddr == ds_rj)));
-    wire ds_rk_wait_load = ds_use_rk & (ds_rk != 5'b0) &
-                           ((es_will_load & (es_will_waddr == ds_rk)) |
-                            (ms_valid & ms_mem_load & ms_rf_we & (ms_rf_waddr == ds_rk)));
-    wire ds_rd_wait_load = ds_use_rd & (ds_rd != 5'b0) &
-                           ((es_will_load & (es_will_waddr == ds_rd)) |
-                            (ms_valid & ms_mem_load & ms_rf_we & (ms_rf_waddr == ds_rd)));
-    wire ds_load_hazard = ds_valid & (ds_rj_wait_load | ds_rk_wait_load | ds_rd_wait_load);
+    // No decoded instruction consumes rk and rd in the same cycle, so the
+    // second architectural read port is selected between those addresses.
+    wire [4:0] rf_raddr2 = ds_use_rd ? ds_rd : ds_rk;
+    wire [31:0] rf_rj_data;
+    wire [31:0] rf_rk_or_rd_data;
 
-    wire [31:0] ds_rf_rj_value = (ds_rj == 5'b0) ? 32'b0 :
-                                 (es_forward_valid & (es_will_waddr == ds_rj)) ? es_forward_data :
-                                 (ms_forward_valid & (ms_rf_waddr == ds_rj)) ? ms_rf_wdata :
-                                 (ws_forward_valid & (ws_rf_waddr == ds_rj)) ? ws_rf_wdata :
-                                 rf[ds_rj];
-    wire [31:0] ds_rf_rk_value = (ds_rk == 5'b0) ? 32'b0 :
-                                 (es_forward_valid & (es_will_waddr == ds_rk)) ? es_forward_data :
-                                 (ms_forward_valid & (ms_rf_waddr == ds_rk)) ? ms_rf_wdata :
-                                 (ws_forward_valid & (ws_rf_waddr == ds_rk)) ? ws_rf_wdata :
-                                 rf[ds_rk];
-    wire [31:0] ds_rf_rd_value = (ds_rd == 5'b0) ? 32'b0 :
-                                 (es_forward_valid & (es_will_waddr == ds_rd)) ? es_forward_data :
-                                 (ms_forward_valid & (ms_rf_waddr == ds_rd)) ? ms_rf_wdata :
-                                 (ws_forward_valid & (ws_rf_waddr == ds_rd)) ? ws_rf_wdata :
-                                 rf[ds_rd];
-
-    wire ds_serial = ds_valid & (ds_exc | !ds_inst_valid | ds_inst_syscall |
-                     ds_inst_break | ds_inst_ertn |
-                     ds_inst_csrrd | ds_inst_csrwr | ds_inst_csrxchg |
-                     ds_inst_tlbsrch | ds_inst_tlbrd | ds_inst_tlbwr |
-                     ds_inst_tlbfill | ds_inst_invtlb | ds_inst_cacop);
-    wire older_serial = (es_valid & es_serial) | (ms_valid & ms_serial) |
-                        (ws_valid & ws_serial);
-
-    wire ws_redirect = ws_valid & (ws_exc | ws_ertn | ws_flush_after);
-    wire [31:0] ws_redirect_pc = ws_exc ? (ws_tlbr ? csr_tlbrentry : csr_eentry) :
-                                  ws_ertn ? csr_era : (ws_pc + 32'd4);
-
-    wire ms_ready_go = !ms_valid | ms_exc | !(ms_mem_load | ms_mem_store) |
-                       ms_mem_req_sent;
-    wire ws_allowin = 1'b1;
-    wire ms_allowin = !ms_valid | (ms_ready_go & ws_allowin);
-    wire es_muldiv_wait = es_valid & !es_exc & es_inst_valid & es_muldiv_op &
-                          !muldiv_done;
-    wire es_ready_go = !es_muldiv_wait;
-    wire es_allowin = !es_valid | (es_ready_go & ms_allowin);
-    wire ds_ready_go = !ds_load_hazard & !older_serial &
-                       (!ds_serial | (!es_valid & !ms_valid & !ws_valid));
-    wire ds_allowin = !ds_valid | (ds_ready_go & es_allowin);
-    wire fs_allowin = !fs_valid | ds_allowin;
-
-    assign muldiv_start = cpu_en & es_valid & !es_exc & es_inst_valid &
-                           es_muldiv_op & !es_muldiv_started &
-                           !muldiv_busy & !muldiv_done;
-    assign muldiv_clear = cpu_en & ((es_valid & es_muldiv_op & muldiv_done &
-                                     es_allowin) | ws_redirect);
-
-    la32_muldiv u_muldiv(
+    regfile u_regfile(
         .clk(clk),
         .resetn(resetn),
         .cpu_en(cpu_en),
-        .start(muldiv_start),
-        .clear(muldiv_clear),
-        .kill(ws_redirect),
-        .src1(es_rj_value),
-        .src2(es_rk_value),
+        .wen(rf_we_final),
+        .waddr(ws_rf_waddr),
+        .wdata(ws_rf_wdata),
+        .raddr1(ds_rj),
+        .rdata1(rf_rj_data),
+        .raddr2(rf_raddr2),
+        .rdata2(rf_rk_or_rd_data)
+    );
+
+    wire ds_load_hazard;
+    wire [31:0] ds_rf_rj_value;
+    wire [31:0] ds_rf_rk_value;
+    wire [31:0] ds_rf_rd_value;
+
+    la32_forward_unit u_forward_unit(
+        .ds_valid(ds_valid),
+        .use_rj(ds_use_rj),
+        .use_rk(ds_use_rk),
+        .use_rd(ds_use_rd),
+        .rj(ds_rj),
+        .rk(ds_rk),
+        .rd(ds_rd),
+        .raw_rj(rf_rj_data),
+        .raw_rk(ds_use_rk ? rf_rk_or_rd_data : 32'b0),
+        .raw_rd(ds_use_rd ? rf_rk_or_rd_data : 32'b0),
+        .es_load(es_will_load),
+        .es_forward_valid(es_forward_valid),
+        .es_waddr(es_will_waddr),
+        .es_wdata(es_forward_data),
+        .ms_valid(ms_valid),
+        .ms_load(ms_mem_load),
+        .ms_rf_we(ms_rf_we),
+        .ms_forward_valid(ms_forward_valid),
+        .ms_waddr(ms_rf_waddr),
+        .ms_wdata(ms_rf_wdata),
+        .ws_forward_valid(ws_forward_valid),
+        .ws_waddr(ws_rf_waddr),
+        .ws_wdata(ws_rf_wdata),
+        .load_hazard(ds_load_hazard),
+        .rj_value(ds_rf_rj_value),
+        .rk_value(ds_rf_rk_value),
+        .rd_value(ds_rf_rd_value)
+    );
+
+    wire older_serial = (es_valid & es_serial) | (ms_valid & ms_serial) |
+                        (ws_valid & ws_serial);
+
+    wire ws_redirect;
+    wire [31:0] ws_redirect_pc;
+
+    wire es_muldiv_wait = es_valid & !es_exc & es_inst_valid & es_muldiv_op &
+                          !muldiv_done;
+    wire ms_ready_go;
+    wire ms_allowin;
+    wire es_ready_go;
+    wire es_allowin;
+    wire ds_ready_go;
+    wire ds_allowin;
+    wire fs_allowin;
+
+    la32_pipeline_control u_pipeline_control(
+        .fs_valid(fs_valid),
+        .ds_valid(ds_valid),
+        .es_valid(es_valid),
+        .ms_valid(ms_valid),
+        .ws_valid(ws_valid),
+        .ds_load_hazard(ds_load_hazard),
+        .ds_serial(ds_serial),
+        .older_serial(older_serial),
+        .ms_exception(ms_exc),
+        .ms_mem_op(ms_mem_load | ms_mem_store),
+        .ms_mem_req_sent(ms_mem_req_sent),
+        .es_muldiv_wait(es_muldiv_wait),
+        .ms_ready_go(ms_ready_go),
+        .ms_allowin(ms_allowin),
+        .es_ready_go(es_ready_go),
+        .es_allowin(es_allowin),
+        .ds_ready_go(ds_ready_go),
+        .ds_allowin(ds_allowin),
+        .fs_allowin(fs_allowin)
+    );
+
+    assign muldiv_start = cpu_en & es_valid & !es_exc & es_inst_valid &
+                           es_muldiv_op & !muldiv_busy & !muldiv_done;
+    assign muldiv_clear = cpu_en & ((es_valid & es_muldiv_op & muldiv_done &
+                                     es_allowin) | ws_redirect);
+
+    la32_exu u_exu(
+        .clk(clk),
+        .resetn(resetn),
+        .cpu_en(cpu_en),
+        .alu_src1(es_alu_src1),
+        .alu_src2(es_alu_src2),
+        .alu_op(es_alu_op),
+        .alu_result(es_alu_result),
+        .valid(es_valid),
+        .exception(es_exc),
+        .inst_valid(es_inst_valid),
+        .op_beq(es_inst_beq),
+        .op_bne(es_inst_bne),
+        .op_blt(es_inst_blt),
+        .op_bge(es_inst_bge),
+        .op_bltu(es_inst_bltu),
+        .op_bgeu(es_inst_bgeu),
+        .op_b(es_inst_b),
+        .op_bl(es_inst_bl),
+        .op_jirl(es_inst_jirl),
+        .pc(es_pc),
+        .rj_value(es_rj_value),
+        .rk_value(es_rk_value),
+        .rd_value(es_rd_value),
+        .offs16(es_si16_shift),
+        .offs26(es_si26_shift),
+        .branch_taken(es_branch_redirect),
+        .branch_target(es_branch_target),
+        .muldiv_start(muldiv_start),
+        .muldiv_clear(muldiv_clear),
+        .muldiv_kill(ws_redirect),
         .op_mul_w(es_inst_mul_w),
         .op_mulh_w(es_inst_mulh_w),
         .op_mulh_wu(es_inst_mulh_wu),
@@ -971,9 +932,9 @@ module la32_pipeline_core(
         .op_div_wu(es_inst_div_wu),
         .op_mod_w(es_inst_mod_w),
         .op_mod_wu(es_inst_mod_wu),
-        .busy(muldiv_busy),
-        .done(muldiv_done),
-        .result(muldiv_result)
+        .muldiv_busy(muldiv_busy),
+        .muldiv_done(muldiv_done),
+        .muldiv_result(muldiv_result)
     );
 
     wire ex_redirect = !ws_redirect & es_branch_redirect & ms_allowin;
@@ -981,7 +942,26 @@ module la32_pipeline_core(
 
     wire pipe_empty = !fetch_pending & !fs_valid & !ds_valid &
                       !es_valid & !ms_valid & !ws_valid;
-    wire fetch_take_int = pipe_empty & csr_has_int;
+    wire fetch_take_int;
+
+    la32_exception_control u_exception_control(
+        .ws_valid(ws_valid),
+        .ws_exception(ws_exc),
+        .ws_tlbr(ws_tlbr),
+        .ws_ertn(ws_ertn),
+        .ws_flush_after(ws_flush_after),
+        .ws_pc(ws_pc),
+        .csr_eentry(csr_eentry),
+        .csr_tlbrentry(csr_tlbrentry),
+        .csr_era(csr_era),
+        .pipe_empty(pipe_empty),
+        .has_interrupt(csr_has_int),
+        .exception_commit(wb_exc_commit),
+        .ertn_commit(wb_ertn_commit),
+        .redirect(ws_redirect),
+        .redirect_pc(ws_redirect_pc),
+        .fetch_interrupt(fetch_take_int)
+    );
     wire fetch_block = es_mem_op | ds_serial | older_serial |
                        (csr_has_int & !pipe_empty);
     wire fetch_can_accept = !fetch_pending & fs_allowin & !fetch_block &
@@ -989,9 +969,15 @@ module la32_pipeline_core(
     wire fetch_exc_fire = fetch_take_int | (!es_mem_op & trans_exc);
     wire fetch_fire = cpu_en & fetch_can_accept;
 
+    // Fetch is blocked while an EX-stage memory operation uses the shared
+    // translator. Keep that inactive data-translation result away from the
+    // instruction RAM address port, so implementation does not time a false
+    // ID/EX -> TLB -> instruction RAM single-cycle path.
+    wire [31:0] inst_sram_pa = trans_is_fetch ? trans_pa : fetch_pc;
+
     assign inst_sram_en    = fetch_fire & !fetch_exc_fire;
     assign inst_sram_we    = 4'b0000;
-    assign inst_sram_addr  = trans_pa;
+    assign inst_sram_addr  = inst_sram_pa;
     assign inst_sram_wdata = 32'b0;
 
     wire data_req_fire = cpu_en & ms_valid & !ms_exc &
@@ -1002,205 +988,219 @@ module la32_pipeline_core(
     assign data_sram_addr  = ms_mem_pa;
     assign data_sram_wdata = lsu_store_wdata;
 
+    la32_fetch_unit u_fetch_unit(
+        .clk(clk),
+        .resetn(resetn),
+        .cpu_en(cpu_en),
+        .wb_redirect(ws_redirect),
+        .wb_redirect_pc(ws_redirect_pc),
+        .ex_redirect(ex_redirect),
+        .ex_redirect_pc(ex_redirect_pc),
+        .fetch_fire(fetch_fire),
+        .fetch_exception(fetch_exc_fire),
+        .fetch_interrupt(fetch_take_int),
+        .trans_ecode(trans_ecode),
+        .trans_esubcode(trans_esubcode),
+        .trans_tlbr(trans_tlbr),
+        .fs_allowin(fs_allowin),
+        .inst_rdata(inst_sram_rdata),
+        .pc(fetch_pc),
+        .pending(fetch_pending),
+        .fs_valid(fs_valid),
+        .fs_pc(fs_pc),
+        .fs_inst(fs_inst),
+        .fs_exc(fs_exc),
+        .fs_ecode(fs_ecode),
+        .fs_esubcode(fs_esubcode),
+        .fs_badv(fs_badv),
+        .fs_tlbr(fs_tlbr)
+    );
+
+    wire [127:0] ifid_in_payload = {fs_pc, fs_inst, fs_exc, fs_ecode,
+                                    fs_esubcode, fs_badv, fs_tlbr};
+    wire [127:0] ifid_out_payload;
+    assign {ds_pc, ds_inst, ds_exc, ds_ecode, ds_esubcode, ds_badv,
+            ds_tlbr} = ifid_out_payload;
+
+    la32_if_id_reg #(.PAYLOAD_WIDTH(128)) u_if_id_reg(
+        .clk(clk),
+        .resetn(resetn),
+        .cpu_en(cpu_en),
+        .flush(ws_redirect | ex_redirect),
+        .allowin(ds_allowin),
+        .in_valid(fs_valid),
+        .in_payload(ifid_in_payload),
+        .out_valid(ds_valid),
+        .out_payload(ifid_out_payload)
+    );
+
+    wire [511:0] idex_in_payload = {
+        ds_pc, ds_inst, ds_exc, ds_ecode, ds_esubcode, ds_badv, ds_tlbr,
+        ds_rf_rj_value, ds_rf_rk_value, ds_rf_rd_value,
+        ds_rd, ds_rj, ds_rk, ds_csr_num, ds_invtlb_op, ds_serial,
+        ds_dest, ds_dec_is_load, ds_dec_rf_we,
+        ds_inst_add_w, ds_inst_sub_w, ds_inst_slt, ds_inst_sltu,
+        ds_inst_nor, ds_inst_and, ds_inst_or, ds_inst_xor,
+        ds_inst_sll_w, ds_inst_srl_w, ds_inst_sra_w,
+        ds_inst_mul_w, ds_inst_mulh_w, ds_inst_mulh_wu,
+        ds_inst_div_w, ds_inst_div_wu, ds_inst_mod_w, ds_inst_mod_wu,
+        ds_inst_slli_w, ds_inst_srli_w, ds_inst_srai_w,
+        ds_inst_addi_w, ds_inst_slti, ds_inst_sltui,
+        ds_inst_andi, ds_inst_ori, ds_inst_xori,
+        ds_inst_lu12i_w, ds_inst_pcaddu12i,
+        ds_inst_ld_b, ds_inst_ld_h, ds_inst_ld_w,
+        ds_inst_ld_bu, ds_inst_ld_hu,
+        ds_inst_st_b, ds_inst_st_h, ds_inst_st_w,
+        ds_inst_beq, ds_inst_bne, ds_inst_blt, ds_inst_bge,
+        ds_inst_bltu, ds_inst_bgeu, ds_inst_jirl, ds_inst_b, ds_inst_bl,
+        ds_inst_csrrd, ds_inst_csrwr, ds_inst_csrxchg,
+        ds_inst_syscall, ds_inst_break, ds_inst_ertn,
+        ds_inst_rdcntvl_w, ds_inst_rdcntvh_w, ds_inst_rdcntid_w,
+        ds_inst_tlbsrch, ds_inst_tlbrd, ds_inst_tlbwr,
+        ds_inst_tlbfill, ds_inst_invtlb, ds_inst_cacop, ds_inst_valid
+    };
+    wire [511:0] idex_out_payload;
+    assign {
+        es_pc, es_inst, es_exc, es_ecode, es_esubcode, es_badv, es_tlbr,
+        es_rj_value, es_rk_value, es_rd_value,
+        es_rd, es_rj, es_rk, es_csr_num, es_invtlb_op, es_serial,
+        es_dest, es_dec_is_load, es_dec_rf_we,
+        es_inst_add_w, es_inst_sub_w, es_inst_slt, es_inst_sltu,
+        es_inst_nor, es_inst_and, es_inst_or, es_inst_xor,
+        es_inst_sll_w, es_inst_srl_w, es_inst_sra_w,
+        es_inst_mul_w, es_inst_mulh_w, es_inst_mulh_wu,
+        es_inst_div_w, es_inst_div_wu, es_inst_mod_w, es_inst_mod_wu,
+        es_inst_slli_w, es_inst_srli_w, es_inst_srai_w,
+        es_inst_addi_w, es_inst_slti, es_inst_sltui,
+        es_inst_andi, es_inst_ori, es_inst_xori,
+        es_inst_lu12i_w, es_inst_pcaddu12i,
+        es_inst_ld_b, es_inst_ld_h, es_inst_ld_w,
+        es_inst_ld_bu, es_inst_ld_hu,
+        es_inst_st_b, es_inst_st_h, es_inst_st_w,
+        es_inst_beq, es_inst_bne, es_inst_blt, es_inst_bge,
+        es_inst_bltu, es_inst_bgeu, es_inst_jirl, es_inst_b, es_inst_bl,
+        es_inst_csrrd, es_inst_csrwr, es_inst_csrxchg,
+        es_inst_syscall, es_inst_break, es_inst_ertn,
+        es_inst_rdcntvl_w, es_inst_rdcntvh_w, es_inst_rdcntid_w,
+        es_inst_tlbsrch, es_inst_tlbrd, es_inst_tlbwr,
+        es_inst_tlbfill, es_inst_invtlb, es_inst_cacop, es_inst_valid
+    } = idex_out_payload;
+
+    la32_id_ex_reg #(.PAYLOAD_WIDTH(512)) u_id_ex_reg(
+        .clk(clk),
+        .resetn(resetn),
+        .cpu_en(cpu_en),
+        .flush(ws_redirect | ex_redirect),
+        .allowin(es_allowin),
+        .in_valid(ds_valid & ds_ready_go),
+        .in_payload(idex_in_payload),
+        .out_valid(es_valid),
+        .out_payload(idex_out_payload)
+    );
+
+    wire [639:0] exmem_in_payload = {
+        es_pc, es_inst, ex_exc, ex_ecode, ex_esubcode, ex_badv, ex_tlbr,
+        ex_ertn, es_serial, ex_flush_after,
+        ex_rf_we, ex_rf_waddr, ex_rf_wdata, ex_mem_load, ex_mem_store,
+        es_mem_va, ex_mem_pa, es_rd_value,
+        es_inst_ld_b, es_inst_ld_h, es_inst_ld_w,
+        es_inst_ld_bu, es_inst_ld_hu,
+        es_inst_st_b, es_inst_st_h, es_inst_st_w,
+        ex_csr_we, ex_csr_waddr, ex_csr_wmask, ex_csr_wdata,
+        ex_tlbidx_we, ex_tlbidx_wdata,
+        ex_tlbehi_we, ex_tlbehi_wdata,
+        ex_tlbelo0_we, ex_tlbelo0_wdata,
+        ex_tlbelo1_we, ex_tlbelo1_wdata,
+        ex_asid_we, ex_asid_wdata,
+        ex_op_tlbwr, ex_op_tlbfill, ex_op_invtlb,
+        es_invtlb_op, es_rj_value, es_rk_value
+    };
+    wire [639:0] exmem_out_payload;
+    assign {
+        ms_pc, ms_inst, ms_exc, ms_ecode, ms_esubcode, ms_badv, ms_tlbr,
+        ms_ertn, ms_serial, ms_flush_after,
+        ms_rf_we, ms_rf_waddr, ms_rf_wdata, ms_mem_load, ms_mem_store,
+        ms_mem_va, ms_mem_pa, ms_store_data,
+        ms_op_ld_b, ms_op_ld_h, ms_op_ld_w,
+        ms_op_ld_bu, ms_op_ld_hu,
+        ms_op_st_b, ms_op_st_h, ms_op_st_w,
+        ms_csr_we, ms_csr_waddr, ms_csr_wmask, ms_csr_wdata,
+        ms_tlbidx_we, ms_tlbidx_wdata,
+        ms_tlbehi_we, ms_tlbehi_wdata,
+        ms_tlbelo0_we, ms_tlbelo0_wdata,
+        ms_tlbelo1_we, ms_tlbelo1_wdata,
+        ms_asid_we, ms_asid_wdata,
+        ms_op_tlbwr, ms_op_tlbfill, ms_op_invtlb,
+        ms_invtlb_op, ms_invtlb_asid, ms_invtlb_va
+    } = exmem_out_payload;
+
+    la32_ex_mem_reg #(.PAYLOAD_WIDTH(640)) u_ex_mem_reg(
+        .clk(clk),
+        .resetn(resetn),
+        .cpu_en(cpu_en),
+        .flush(ws_redirect),
+        .allowin(ms_allowin),
+        .in_valid(es_valid & es_ready_go),
+        .in_payload(exmem_in_payload),
+        .request_fire(data_req_fire),
+        .out_valid(ms_valid),
+        .out_payload(exmem_out_payload),
+        .request_sent(ms_mem_req_sent)
+    );
+
+    wire [31:0] wb_selected_data;
+    la32_wb_select u_wb_select(
+        .select_load(ms_mem_load),
+        .ex_result(ms_rf_wdata),
+        .load_result(lsu_load_result),
+        .wb_data(wb_selected_data)
+    );
+
+    wire [511:0] memwb_in_payload = {
+        ms_pc, ms_inst, ms_exc, ms_ecode, ms_esubcode, ms_badv, ms_tlbr,
+        ms_ertn, ms_serial, ms_flush_after,
+        ms_rf_we, ms_rf_waddr, wb_selected_data,
+        ms_csr_we, ms_csr_waddr, ms_csr_wmask, ms_csr_wdata,
+        ms_tlbidx_we, ms_tlbidx_wdata,
+        ms_tlbehi_we, ms_tlbehi_wdata,
+        ms_tlbelo0_we, ms_tlbelo0_wdata,
+        ms_tlbelo1_we, ms_tlbelo1_wdata,
+        ms_asid_we, ms_asid_wdata,
+        ms_op_tlbwr, ms_op_tlbfill, ms_op_invtlb,
+        ms_invtlb_op, ms_invtlb_asid, ms_invtlb_va
+    };
+    wire [511:0] memwb_out_payload;
+    assign {
+        ws_pc, ws_inst, ws_exc, ws_ecode, ws_esubcode, ws_badv, ws_tlbr,
+        ws_ertn, ws_serial, ws_flush_after,
+        ws_rf_we, ws_rf_waddr, ws_rf_wdata,
+        ws_csr_we, ws_csr_waddr, ws_csr_wmask, ws_csr_wdata,
+        ws_tlbidx_we, ws_tlbidx_wdata,
+        ws_tlbehi_we, ws_tlbehi_wdata,
+        ws_tlbelo0_we, ws_tlbelo0_wdata,
+        ws_tlbelo1_we, ws_tlbelo1_wdata,
+        ws_asid_we, ws_asid_wdata,
+        ws_op_tlbwr, ws_op_tlbfill, ws_op_invtlb,
+        ws_invtlb_op, ws_invtlb_asid, ws_invtlb_va
+    } = memwb_out_payload;
+
+    la32_mem_wb_reg #(.PAYLOAD_WIDTH(512)) u_mem_wb_reg(
+        .clk(clk),
+        .resetn(resetn),
+        .cpu_en(cpu_en),
+        .flush(ws_redirect),
+        .in_valid(ms_valid & ms_ready_go),
+        .in_payload(memwb_in_payload),
+        .out_valid(ws_valid),
+        .out_payload(memwb_out_payload)
+    );
+
     assign debug_fetch_pc = fetch_pc;
     assign debug_pipe_valid = {ws_valid | ms_valid, es_valid, ds_valid, fs_valid | fetch_pending};
     assign debug_pipe_hazard = {ds_load_hazard, older_serial, fetch_block};
 
     always @(posedge clk) begin
         if (!resetn) begin
-            fetch_pc              <= 32'h1c000000;
-            fetch_pending         <= 1'b0;
-            fetch_pending_pc      <= 32'b0;
-            fetch_pending_exc     <= 1'b0;
-            fetch_pending_ecode   <= 6'b0;
-            fetch_pending_esubcode <= 9'b0;
-            fetch_pending_badv    <= 32'b0;
-            fetch_pending_tlbr    <= 1'b0;
-            fetch_pending_from_mem <= 1'b0;
-
-            fs_valid <= 1'b0;
-            fs_pc    <= 32'b0;
-            fs_inst  <= 32'b0;
-            fs_exc   <= 1'b0;
-            fs_ecode <= 6'b0;
-            fs_esubcode <= 9'b0;
-            fs_badv  <= 32'b0;
-            fs_tlbr  <= 1'b0;
-
-            ds_valid <= 1'b0;
-            ds_pc    <= 32'b0;
-            ds_inst  <= 32'b0;
-            ds_exc   <= 1'b0;
-            ds_ecode <= 6'b0;
-            ds_esubcode <= 9'b0;
-            ds_badv  <= 32'b0;
-            ds_tlbr  <= 1'b0;
-
-            es_valid <= 1'b0;
-            es_pc    <= 32'b0;
-            es_inst  <= 32'b0;
-            es_exc   <= 1'b0;
-            es_ecode <= 6'b0;
-            es_esubcode <= 9'b0;
-            es_badv  <= 32'b0;
-            es_tlbr  <= 1'b0;
-            es_rj_value <= 32'b0;
-            es_rk_value <= 32'b0;
-            es_rd_value <= 32'b0;
-            es_rd <= 5'b0;
-            es_rj <= 5'b0;
-            es_rk <= 5'b0;
-            es_csr_num <= 14'b0;
-            es_invtlb_op <= 5'b0;
-            es_serial <= 1'b0;
-
-            es_inst_add_w <= 1'b0;
-            es_inst_sub_w <= 1'b0;
-            es_inst_slt <= 1'b0;
-            es_inst_sltu <= 1'b0;
-            es_inst_nor <= 1'b0;
-            es_inst_and <= 1'b0;
-            es_inst_or <= 1'b0;
-            es_inst_xor <= 1'b0;
-            es_inst_sll_w <= 1'b0;
-            es_inst_srl_w <= 1'b0;
-            es_inst_sra_w <= 1'b0;
-            es_inst_mul_w <= 1'b0;
-            es_inst_mulh_w <= 1'b0;
-            es_inst_mulh_wu <= 1'b0;
-            es_inst_div_w <= 1'b0;
-            es_inst_div_wu <= 1'b0;
-            es_inst_mod_w <= 1'b0;
-            es_inst_mod_wu <= 1'b0;
-            es_inst_slli_w <= 1'b0;
-            es_inst_srli_w <= 1'b0;
-            es_inst_srai_w <= 1'b0;
-            es_inst_addi_w <= 1'b0;
-            es_inst_slti <= 1'b0;
-            es_inst_sltui <= 1'b0;
-            es_inst_andi <= 1'b0;
-            es_inst_ori <= 1'b0;
-            es_inst_xori <= 1'b0;
-            es_inst_lu12i_w <= 1'b0;
-            es_inst_pcaddu12i <= 1'b0;
-            es_inst_ld_b <= 1'b0;
-            es_inst_ld_h <= 1'b0;
-            es_inst_ld_w <= 1'b0;
-            es_inst_ld_bu <= 1'b0;
-            es_inst_ld_hu <= 1'b0;
-            es_inst_st_b <= 1'b0;
-            es_inst_st_h <= 1'b0;
-            es_inst_st_w <= 1'b0;
-            es_inst_beq <= 1'b0;
-            es_inst_bne <= 1'b0;
-            es_inst_blt <= 1'b0;
-            es_inst_bge <= 1'b0;
-            es_inst_bltu <= 1'b0;
-            es_inst_bgeu <= 1'b0;
-            es_inst_jirl <= 1'b0;
-            es_inst_b <= 1'b0;
-            es_inst_bl <= 1'b0;
-            es_inst_csrrd <= 1'b0;
-            es_inst_csrwr <= 1'b0;
-            es_inst_csrxchg <= 1'b0;
-            es_inst_syscall <= 1'b0;
-            es_inst_break <= 1'b0;
-            es_inst_ertn <= 1'b0;
-            es_inst_rdcntvl_w <= 1'b0;
-            es_inst_rdcntvh_w <= 1'b0;
-            es_inst_rdcntid_w <= 1'b0;
-            es_inst_tlbsrch <= 1'b0;
-            es_inst_tlbrd <= 1'b0;
-            es_inst_tlbwr <= 1'b0;
-            es_inst_tlbfill <= 1'b0;
-            es_inst_invtlb <= 1'b0;
-            es_inst_cacop <= 1'b0;
-            es_inst_valid <= 1'b0;
-            es_muldiv_started <= 1'b0;
-
-            ms_valid <= 1'b0;
-            ms_pc <= 32'b0;
-            ms_inst <= 32'b0;
-            ms_exc <= 1'b0;
-            ms_ecode <= 6'b0;
-            ms_esubcode <= 9'b0;
-            ms_badv <= 32'b0;
-            ms_tlbr <= 1'b0;
-            ms_ertn <= 1'b0;
-            ms_serial <= 1'b0;
-            ms_flush_after <= 1'b0;
-            ms_rf_we <= 1'b0;
-            ms_rf_waddr <= 5'b0;
-            ms_rf_wdata <= 32'b0;
-            ms_mem_load <= 1'b0;
-            ms_mem_store <= 1'b0;
-            ms_mem_req_sent <= 1'b0;
-            ms_mem_va <= 32'b0;
-            ms_mem_pa <= 32'b0;
-            ms_store_data <= 32'b0;
-            ms_op_ld_b <= 1'b0;
-            ms_op_ld_h <= 1'b0;
-            ms_op_ld_w <= 1'b0;
-            ms_op_ld_bu <= 1'b0;
-            ms_op_ld_hu <= 1'b0;
-            ms_op_st_b <= 1'b0;
-            ms_op_st_h <= 1'b0;
-            ms_op_st_w <= 1'b0;
-            ms_csr_we <= 1'b0;
-            ms_csr_waddr <= 14'b0;
-            ms_csr_wmask <= 32'b0;
-            ms_csr_wdata <= 32'b0;
-            ms_tlbidx_we <= 1'b0;
-            ms_tlbidx_wdata <= 32'b0;
-            ms_tlbehi_we <= 1'b0;
-            ms_tlbehi_wdata <= 32'b0;
-            ms_tlbelo0_we <= 1'b0;
-            ms_tlbelo0_wdata <= 32'b0;
-            ms_tlbelo1_we <= 1'b0;
-            ms_tlbelo1_wdata <= 32'b0;
-            ms_asid_we <= 1'b0;
-            ms_asid_wdata <= 32'b0;
-            ms_op_tlbwr <= 1'b0;
-            ms_op_tlbfill <= 1'b0;
-            ms_op_invtlb <= 1'b0;
-            ms_invtlb_op <= 5'b0;
-            ms_invtlb_asid <= 32'b0;
-            ms_invtlb_va <= 32'b0;
-
-            ws_valid <= 1'b0;
-            ws_pc <= 32'b0;
-            ws_inst <= 32'b0;
-            ws_exc <= 1'b0;
-            ws_ecode <= 6'b0;
-            ws_esubcode <= 9'b0;
-            ws_badv <= 32'b0;
-            ws_tlbr <= 1'b0;
-            ws_ertn <= 1'b0;
-            ws_serial <= 1'b0;
-            ws_flush_after <= 1'b0;
-            ws_rf_we <= 1'b0;
-            ws_rf_waddr <= 5'b0;
-            ws_rf_wdata <= 32'b0;
-            ws_csr_we <= 1'b0;
-            ws_csr_waddr <= 14'b0;
-            ws_csr_wmask <= 32'b0;
-            ws_csr_wdata <= 32'b0;
-            ws_tlbidx_we <= 1'b0;
-            ws_tlbidx_wdata <= 32'b0;
-            ws_tlbehi_we <= 1'b0;
-            ws_tlbehi_wdata <= 32'b0;
-            ws_tlbelo0_we <= 1'b0;
-            ws_tlbelo0_wdata <= 32'b0;
-            ws_tlbelo1_we <= 1'b0;
-            ws_tlbelo1_wdata <= 32'b0;
-            ws_asid_we <= 1'b0;
-            ws_asid_wdata <= 32'b0;
-            ws_op_tlbwr <= 1'b0;
-            ws_op_tlbfill <= 1'b0;
-            ws_op_invtlb <= 1'b0;
-            ws_invtlb_op <= 5'b0;
-            ws_invtlb_asid <= 32'b0;
-            ws_invtlb_va <= 32'b0;
 
             debug_wb_pc <= 32'b0;
             debug_wb_rf_we <= 4'b0;
@@ -1214,16 +1214,12 @@ module la32_pipeline_core(
             debug_commit_pc <= 32'b0;
             debug_commit_inst <= 32'b0;
 
-            for (i = 0; i < 32; i = i + 1) begin
-                rf[i] <= 32'b0;
-            end
         end
         else if (cpu_en) begin
             debug_commit_valid <= 1'b0;
             debug_wb_rf_we <= 4'b0;
             debug_wb_rf_wnum <= 5'b0;
             debug_wb_rf_wdata <= 32'b0;
-            rf[0] <= 32'b0;
 
             if (ws_valid) begin
                 debug_commit_valid <= 1'b1;
@@ -1233,7 +1229,6 @@ module la32_pipeline_core(
             end
 
             if (ws_valid && ws_rf_we && ws_rf_waddr != 5'b0 && !ws_exc) begin
-                rf[ws_rf_waddr] <= ws_rf_wdata;
                 debug_wb_rf_we <= 4'hf;
                 debug_wb_rf_wnum <= ws_rf_waddr;
                 debug_wb_rf_wdata <= ws_rf_wdata;
@@ -1243,253 +1238,6 @@ module la32_pipeline_core(
                 debug_last_wb_wdata <= ws_rf_wdata;
             end
 
-            if (ws_redirect) begin
-                fetch_pc <= ws_redirect_pc;
-            end
-            else if (ex_redirect) begin
-                fetch_pc <= ex_redirect_pc;
-            end
-            else if (fetch_fire) begin
-                fetch_pc <= fetch_pc + 32'd4;
-            end
-
-            if (ws_redirect | ex_redirect) begin
-                fetch_pending <= 1'b0;
-            end
-            else begin
-                fetch_pending <= fetch_fire;
-                if (fetch_fire) begin
-                    fetch_pending_pc <= fetch_pc;
-                    fetch_pending_exc <= fetch_exc_fire;
-                    fetch_pending_ecode <= fetch_take_int ? ECODE_INT : trans_ecode;
-                    fetch_pending_esubcode <= fetch_take_int ? 9'b0 : trans_esubcode;
-                    fetch_pending_badv <= fetch_take_int ? 32'b0 : fetch_pc;
-                    fetch_pending_tlbr <= fetch_take_int ? 1'b0 : trans_tlbr;
-                    fetch_pending_from_mem <= !fetch_exc_fire;
-                end
-            end
-
-            if (ws_redirect | ex_redirect) begin
-                fs_valid <= 1'b0;
-            end
-            else if (fs_allowin) begin
-                fs_valid <= fetch_pending;
-                fs_pc <= fetch_pending_pc;
-                fs_inst <= fetch_pending_from_mem ? inst_sram_rdata : 32'b0;
-                fs_exc <= fetch_pending_exc;
-                fs_ecode <= fetch_pending_ecode;
-                fs_esubcode <= fetch_pending_esubcode;
-                fs_badv <= fetch_pending_badv;
-                fs_tlbr <= fetch_pending_tlbr;
-            end
-
-            if (ws_redirect | ex_redirect) begin
-                ds_valid <= 1'b0;
-            end
-            else if (ds_allowin) begin
-                ds_valid <= fs_valid;
-                ds_pc <= fs_pc;
-                ds_inst <= fs_inst;
-                ds_exc <= fs_exc;
-                ds_ecode <= fs_ecode;
-                ds_esubcode <= fs_esubcode;
-                ds_badv <= fs_badv;
-                ds_tlbr <= fs_tlbr;
-            end
-
-            if (ws_redirect | ex_redirect) begin
-                es_valid <= 1'b0;
-            end
-            else if (es_allowin) begin
-                es_valid <= ds_valid & ds_ready_go;
-                es_pc <= ds_pc;
-                es_inst <= ds_inst;
-                es_exc <= ds_exc;
-                es_ecode <= ds_ecode;
-                es_esubcode <= ds_esubcode;
-                es_badv <= ds_badv;
-                es_tlbr <= ds_tlbr;
-                es_rj_value <= ds_rf_rj_value;
-                es_rk_value <= ds_rf_rk_value;
-                es_rd_value <= ds_rf_rd_value;
-                es_rd <= ds_rd;
-                es_rj <= ds_rj;
-                es_rk <= ds_rk;
-                es_csr_num <= ds_csr_num;
-                es_invtlb_op <= ds_invtlb_op;
-                es_serial <= ds_serial;
-
-                es_inst_add_w <= ds_inst_add_w;
-                es_inst_sub_w <= ds_inst_sub_w;
-                es_inst_slt <= ds_inst_slt;
-                es_inst_sltu <= ds_inst_sltu;
-                es_inst_nor <= ds_inst_nor;
-                es_inst_and <= ds_inst_and;
-                es_inst_or <= ds_inst_or;
-                es_inst_xor <= ds_inst_xor;
-                es_inst_sll_w <= ds_inst_sll_w;
-                es_inst_srl_w <= ds_inst_srl_w;
-                es_inst_sra_w <= ds_inst_sra_w;
-                es_inst_mul_w <= ds_inst_mul_w;
-                es_inst_mulh_w <= ds_inst_mulh_w;
-                es_inst_mulh_wu <= ds_inst_mulh_wu;
-                es_inst_div_w <= ds_inst_div_w;
-                es_inst_div_wu <= ds_inst_div_wu;
-                es_inst_mod_w <= ds_inst_mod_w;
-                es_inst_mod_wu <= ds_inst_mod_wu;
-                es_inst_slli_w <= ds_inst_slli_w;
-                es_inst_srli_w <= ds_inst_srli_w;
-                es_inst_srai_w <= ds_inst_srai_w;
-                es_inst_addi_w <= ds_inst_addi_w;
-                es_inst_slti <= ds_inst_slti;
-                es_inst_sltui <= ds_inst_sltui;
-                es_inst_andi <= ds_inst_andi;
-                es_inst_ori <= ds_inst_ori;
-                es_inst_xori <= ds_inst_xori;
-                es_inst_lu12i_w <= ds_inst_lu12i_w;
-                es_inst_pcaddu12i <= ds_inst_pcaddu12i;
-                es_inst_ld_b <= ds_inst_ld_b;
-                es_inst_ld_h <= ds_inst_ld_h;
-                es_inst_ld_w <= ds_inst_ld_w;
-                es_inst_ld_bu <= ds_inst_ld_bu;
-                es_inst_ld_hu <= ds_inst_ld_hu;
-                es_inst_st_b <= ds_inst_st_b;
-                es_inst_st_h <= ds_inst_st_h;
-                es_inst_st_w <= ds_inst_st_w;
-                es_inst_beq <= ds_inst_beq;
-                es_inst_bne <= ds_inst_bne;
-                es_inst_blt <= ds_inst_blt;
-                es_inst_bge <= ds_inst_bge;
-                es_inst_bltu <= ds_inst_bltu;
-                es_inst_bgeu <= ds_inst_bgeu;
-                es_inst_jirl <= ds_inst_jirl;
-                es_inst_b <= ds_inst_b;
-                es_inst_bl <= ds_inst_bl;
-                es_inst_csrrd <= ds_inst_csrrd;
-                es_inst_csrwr <= ds_inst_csrwr;
-                es_inst_csrxchg <= ds_inst_csrxchg;
-                es_inst_syscall <= ds_inst_syscall;
-                es_inst_break <= ds_inst_break;
-                es_inst_ertn <= ds_inst_ertn;
-                es_inst_rdcntvl_w <= ds_inst_rdcntvl_w;
-                es_inst_rdcntvh_w <= ds_inst_rdcntvh_w;
-                es_inst_rdcntid_w <= ds_inst_rdcntid_w;
-                es_inst_tlbsrch <= ds_inst_tlbsrch;
-                es_inst_tlbrd <= ds_inst_tlbrd;
-                es_inst_tlbwr <= ds_inst_tlbwr;
-                es_inst_tlbfill <= ds_inst_tlbfill;
-                es_inst_invtlb <= ds_inst_invtlb;
-                es_inst_cacop <= ds_inst_cacop;
-                es_inst_valid <= ds_inst_valid;
-            end
-
-            if (ws_redirect | ex_redirect) begin
-                es_muldiv_started <= 1'b0;
-            end
-            else if (es_allowin) begin
-                es_muldiv_started <= 1'b0;
-            end
-            else if (muldiv_start) begin
-                es_muldiv_started <= 1'b1;
-            end
-
-            if (ws_redirect) begin
-                ms_valid <= 1'b0;
-                ms_mem_req_sent <= 1'b0;
-            end
-            else if (ms_allowin) begin
-                ms_valid <= es_valid & es_ready_go;
-                ms_pc <= es_pc;
-                ms_inst <= es_inst;
-                ms_exc <= ex_exc;
-                ms_ecode <= ex_ecode;
-                ms_esubcode <= ex_esubcode;
-                ms_badv <= ex_badv;
-                ms_tlbr <= ex_tlbr;
-                ms_ertn <= ex_ertn;
-                ms_serial <= es_serial;
-                ms_flush_after <= ex_flush_after;
-                ms_rf_we <= ex_rf_we;
-                ms_rf_waddr <= ex_rf_waddr;
-                ms_rf_wdata <= ex_rf_wdata;
-                ms_mem_load <= ex_mem_load;
-                ms_mem_store <= ex_mem_store;
-                ms_mem_req_sent <= 1'b0;
-                ms_mem_va <= es_mem_va;
-                ms_mem_pa <= ex_mem_pa;
-                ms_store_data <= es_rd_value;
-                ms_op_ld_b <= es_inst_ld_b;
-                ms_op_ld_h <= es_inst_ld_h;
-                ms_op_ld_w <= es_inst_ld_w;
-                ms_op_ld_bu <= es_inst_ld_bu;
-                ms_op_ld_hu <= es_inst_ld_hu;
-                ms_op_st_b <= es_inst_st_b;
-                ms_op_st_h <= es_inst_st_h;
-                ms_op_st_w <= es_inst_st_w;
-                ms_csr_we <= ex_csr_we;
-                ms_csr_waddr <= ex_csr_waddr;
-                ms_csr_wmask <= ex_csr_wmask;
-                ms_csr_wdata <= ex_csr_wdata;
-                ms_tlbidx_we <= ex_tlbidx_we;
-                ms_tlbidx_wdata <= ex_tlbidx_wdata;
-                ms_tlbehi_we <= ex_tlbehi_we;
-                ms_tlbehi_wdata <= ex_tlbehi_wdata;
-                ms_tlbelo0_we <= ex_tlbelo0_we;
-                ms_tlbelo0_wdata <= ex_tlbelo0_wdata;
-                ms_tlbelo1_we <= ex_tlbelo1_we;
-                ms_tlbelo1_wdata <= ex_tlbelo1_wdata;
-                ms_asid_we <= ex_asid_we;
-                ms_asid_wdata <= ex_asid_wdata;
-                ms_op_tlbwr <= ex_op_tlbwr;
-                ms_op_tlbfill <= ex_op_tlbfill;
-                ms_op_invtlb <= ex_op_invtlb;
-                ms_invtlb_op <= es_invtlb_op;
-                ms_invtlb_asid <= es_rj_value;
-                ms_invtlb_va <= es_rk_value;
-            end
-            else if (data_req_fire) begin
-                ms_mem_req_sent <= 1'b1;
-            end
-
-            if (ws_redirect) begin
-                ws_valid <= 1'b0;
-            end
-            else begin
-                ws_valid <= ms_valid & ms_ready_go;
-                ws_pc <= ms_pc;
-                ws_inst <= ms_inst;
-                ws_exc <= ms_exc;
-                ws_ecode <= ms_ecode;
-                ws_esubcode <= ms_esubcode;
-                ws_badv <= ms_badv;
-                ws_tlbr <= ms_tlbr;
-                ws_ertn <= ms_ertn;
-                ws_serial <= ms_serial;
-                ws_flush_after <= ms_flush_after;
-                ws_rf_we <= ms_rf_we;
-                ws_rf_waddr <= ms_rf_waddr;
-                ws_rf_wdata <= ms_mem_load ? lsu_load_result : ms_rf_wdata;
-                ws_csr_we <= ms_csr_we;
-                ws_csr_waddr <= ms_csr_waddr;
-                ws_csr_wmask <= ms_csr_wmask;
-                ws_csr_wdata <= ms_csr_wdata;
-                ws_tlbidx_we <= ms_tlbidx_we;
-                ws_tlbidx_wdata <= ms_tlbidx_wdata;
-                ws_tlbehi_we <= ms_tlbehi_we;
-                ws_tlbehi_wdata <= ms_tlbehi_wdata;
-                ws_tlbelo0_we <= ms_tlbelo0_we;
-                ws_tlbelo0_wdata <= ms_tlbelo0_wdata;
-                ws_tlbelo1_we <= ms_tlbelo1_we;
-                ws_tlbelo1_wdata <= ms_tlbelo1_wdata;
-                ws_asid_we <= ms_asid_we;
-                ws_asid_wdata <= ms_asid_wdata;
-                ws_op_tlbwr <= ms_op_tlbwr;
-                ws_op_tlbfill <= ms_op_tlbfill;
-                ws_op_invtlb <= ms_op_invtlb;
-                ws_invtlb_op <= ms_invtlb_op;
-                ws_invtlb_asid <= ms_invtlb_asid;
-                ws_invtlb_va <= ms_invtlb_va;
-            end
         end
     end
 
