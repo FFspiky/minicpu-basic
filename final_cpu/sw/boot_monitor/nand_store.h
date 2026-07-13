@@ -8,6 +8,7 @@
 #define NAND_PAGE_TOTAL 2112
 #define NAND_MAX_SLOT_BLOCKS 7
 #define PROGRAM_SLOTS 16
+#define NAND_DIRECTORY_SCAN_MAX 16
 
 struct __attribute__((packed)) program_slot {
     u8 name[32]; u32 image_size; u32 image_crc;
@@ -33,10 +34,22 @@ struct __attribute__((packed)) nand_store_diagnostics {
     u32 init_result;
 };
 
+struct __attribute__((packed)) nand_directory_candidate {
+    u32 block, generation, valid_mask;
+};
+struct __attribute__((packed)) nand_directory_scan {
+    u32 version, scanned_blocks;
+    u32 raw_read_failures, page_magic_failures, ecc_failures;
+    u32 page_crc_failures, directory_magic_failures, directory_crc_failures;
+    u32 valid_candidates, stored_candidates;
+    struct nand_directory_candidate candidates[NAND_DIRECTORY_SCAN_MAX];
+};
+
 int nand_store_init(void);
 int nand_store_format(void);
 const struct program_directory *nand_directory(void);
 const struct nand_store_diagnostics *nand_diagnostics(void);
+const struct nand_directory_scan *nand_scan_directories(void);
 int nand_install(u32 slot,const void *image,u32 size);
 int nand_remove(u32 slot);
 int nand_verify(u32 slot);

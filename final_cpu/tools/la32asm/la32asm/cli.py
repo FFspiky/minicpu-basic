@@ -157,6 +157,31 @@ def command_board(args, operation: FrameType) -> int:
         for name in ("nand_id0", "nand_id1", "selected_valid_mask"):
             result[name] = f"0x{result[name]:08x}"
         print(json.dumps(result, indent=2))
+    elif operation == FrameType.SCAN_DIRECTORIES:
+        header_layout = struct.Struct("<10I")
+        candidate_layout = struct.Struct("<III")
+        expected_size = header_layout.size + 16 * candidate_layout.size
+        if len(response.payload) != expected_size:
+            raise RuntimeError(f"unexpected directory scan size: {len(response.payload)}")
+        values = header_layout.unpack_from(response.payload)
+        names = (
+            "version", "scanned_blocks", "raw_read_failures",
+            "page_magic_failures", "ecc_failures", "page_crc_failures",
+            "directory_magic_failures", "directory_crc_failures",
+            "valid_candidates", "stored_candidates",
+        )
+        result = dict(zip(names, values))
+        result["candidates"] = []
+        offset = header_layout.size
+        for _ in range(min(result["stored_candidates"], 16)):
+            block, generation, valid_mask = candidate_layout.unpack_from(response.payload, offset)
+            result["candidates"].append({
+                "block": block,
+                "generation": generation,
+                "valid_mask": f"0x{valid_mask:04x}",
+            })
+            offset += candidate_layout.size
+        print(json.dumps(result, indent=2))
     else:
         print("board command complete")
     return 0
@@ -198,7 +223,8 @@ def make_parser() -> argparse.ArgumentParser:
         command.set_defaults(func=lambda args, op=operation: command_transfer(args, op))
     for name, operation in (("list", FrameType.LIST), ("remove", FrameType.REMOVE),
                             ("verify", FrameType.VERIFY), ("format", FrameType.FORMAT),
-                            ("diag", FrameType.DIAGNOSTICS)):
+                            ("diag", FrameType.DIAGNOSTICS),
+                            ("scan-dirs", FrameType.SCAN_DIRECTORIES)):
         command = sub.add_parser(name)
         command.add_argument("--port", required=True)
         command.add_argument("--baud", type=int, default=115200)

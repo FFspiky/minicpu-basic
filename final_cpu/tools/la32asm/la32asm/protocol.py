@@ -28,6 +28,7 @@ class FrameType(IntEnum):
     RUN_TEMPORARY = 12
     FORMAT = 13
     DIAGNOSTICS = 14
+    SCAN_DIRECTORIES = 15
 
 
 @dataclass(frozen=True)
@@ -174,6 +175,7 @@ class Downloader:
 
     def slot_command(self, operation: FrameType, slot: int | None = None) -> Frame:
         payload = b"" if slot is None else bytes([slot])
-        if operation in (FrameType.FORMAT, FrameType.VERIFY, FrameType.REMOVE):
+        if operation in (FrameType.FORMAT, FrameType.VERIFY, FrameType.REMOVE,
+                         FrameType.SCAN_DIRECTORIES):
             return self.request(operation, payload, timeout=120.0, retries=2)
         return self.request(operation, payload)

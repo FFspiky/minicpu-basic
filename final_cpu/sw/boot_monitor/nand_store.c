@@ -15,6 +15,7 @@ static struct program_directory directory;
 static u16 directory_blocks[2];
 static u8 page[NAND_PAGE_TOTAL];
 static struct nand_store_diagnostics diagnostics;
+static struct nand_directory_scan directory_scan;
 
 static void copy(void *d,const void *s,u32 n){u8 *x=d;const u8 *y=s;while(n--)*x++=*y++;}
 static void fill(void *d,u8 v,u32 n){u8 *x=d;while(n--)*x++=v;}
@@ -145,6 +146,33 @@ static int choose_directory_blocks(void)
 
 const struct program_directory *nand_directory(void){return &directory;}
 const struct nand_store_diagnostics *nand_diagnostics(void){return &diagnostics;}
+const struct nand_directory_scan *nand_scan_directories(void)
+{
+    static struct program_directory candidate;
+    u32 block,index;int result;
+    fill(&directory_scan,0,sizeof(directory_scan));directory_scan.version=1;
+    for(block=0;block<NAND_BLOCKS;block++) {
+        if(bad(block))continue;
+        directory_scan.scanned_blocks++;
+        result=read_directory_block(block,&candidate);
+        if(result==0) {
+            index=directory_scan.stored_candidates;
+            directory_scan.valid_candidates++;
+            if(index<NAND_DIRECTORY_SCAN_MAX) {
+                directory_scan.candidates[index].block=block;
+                directory_scan.candidates[index].generation=candidate.generation;
+                directory_scan.candidates[index].valid_mask=candidate.valid_mask;
+                directory_scan.stored_candidates++;
+            }
+        } else if(result==-1)directory_scan.raw_read_failures++;
+        else if(result==-2)directory_scan.page_magic_failures++;
+        else if(result==-3)directory_scan.ecc_failures++;
+        else if(result==-4)directory_scan.page_crc_failures++;
+        else if(result==-5)directory_scan.directory_magic_failures++;
+        else if(result==-6)directory_scan.directory_crc_failures++;
+    }
+    return &directory_scan;
+}
 int nand_store_init(void)
 {
     struct program_directory a,b;int va,vb;
