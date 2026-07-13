@@ -70,14 +70,18 @@ static inline void uart_putc(u8 value)
 
 static inline u8 uart_getc(void)
 {
-    while (!(MMIO32(UART_STATUS) & UART_RX_VALID)) {}
+    /* The status register is returned through CONFREG's registered read
+       path.  After popping one byte, a single read can still report the
+       previous RX_VALID=1 and make the next receive consume an empty FIFO.
+       Use the same settled sample as uart_available() for every byte. */
+    while (!(uart_status_stable() & UART_RX_VALID)) {}
     return (u8)MMIO32(UART_DATA);
 }
 
 static inline int uart_getc_timeout(u8 *value, u32 timeout_ticks)
 {
     u32 start = MMIO32(TIMER_COUNTER);
-    while (!(MMIO32(UART_STATUS) & UART_RX_VALID))
+    while (!(uart_status_stable() & UART_RX_VALID))
         if ((u32)(MMIO32(TIMER_COUNTER) - start) >= timeout_ticks)
             return -1;
     *value = (u8)MMIO32(UART_DATA);
