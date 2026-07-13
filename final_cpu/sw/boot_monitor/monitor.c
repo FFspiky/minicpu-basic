@@ -23,6 +23,10 @@
 struct frame { u8 type; u16 sequence,length; u8 payload[520]; };
 static u32 expected_size,receive_operation,receive_slot;
 static u16 previous_keys;
+static u16 completed_end_sequence;
+static u32 completed_end_crc;
+static int completed_end_result;
+static u8 completed_end_valid;
 
 static void put_text(const char *s){while(*s)uart_putc((u8)*s++);}
 static u16 read_u16(const u8 *p){return (u16)p[0]|((u16)p[1]<<8);}
@@ -87,7 +91,7 @@ static void handle_frame(struct frame *f)
             if(f->length<5){reply(FT_NACK,f->sequence,1);break;}
             receive_operation=f->type;receive_slot=f->payload[0];expected_size=read_u32(f->payload+1);
             if(expected_size>APP_END-APP_START||receive_slot>=PROGRAM_SLOTS)reply(FT_NACK,f->sequence,2);
-            else reply(FT_ACK,f->sequence,0);
+            else {completed_end_valid=0;reply(FT_ACK,f->sequence,0);}
             break;
         case FT_HEADER: reply(FT_ACK,f->sequence,0);break;
         case FT_DATA:
@@ -98,7 +102,13 @@ static void handle_frame(struct frame *f)
             reply(FT_ACK,f->sequence,0);break;
         case FT_END:
             if(f->length!=4){reply(FT_NACK,f->sequence,5);break;}
-            crc=read_u32(f->payload);MMIO32(MENU_STATUS)=2;result=finish_receive(crc);
+            crc=read_u32(f->payload);
+            if(completed_end_valid&&f->sequence==completed_end_sequence&&crc==completed_end_crc) {
+                reply(completed_end_result?FT_NACK:FT_DONE,f->sequence,completed_end_result?6:0);break;
+            }
+            MMIO32(MENU_STATUS)=2;result=finish_receive(crc);
+            completed_end_sequence=f->sequence;completed_end_crc=crc;
+            completed_end_result=result;completed_end_valid=1;
             if(result){MMIO32(MENU_STATUS)=0xff;reply(FT_NACK,f->sequence,6);}
             else {
                 update_menu();MMIO32(MENU_STATUS)=0;reply(FT_DONE,f->sequence,0);
