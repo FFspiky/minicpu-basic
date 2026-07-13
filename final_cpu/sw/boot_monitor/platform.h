@@ -56,16 +56,14 @@ static inline u32 uart_status_stable(void)
 static inline void uart_putc(u8 value)
 {
     /*
-     * CONFREG returns MMIO reads through a registered data path.  Merely
-     * polling TX_READY before the store lets the following call observe one
-     * stale READY sample and write while uart_tx is already busy; uart_tx
-     * intentionally ignores such writes.  Confirm both edges of BUSY before
-     * returning so every byte has been accepted and fully shifted out.
+     * TX_READY now describes space in the CONFREG transmit FIFO.  Waiting for
+     * BUSY to rise and fall after every byte is both unnecessary and unsafe:
+     * a stale registered BUSY sample can strand a long response forever.
+     * Settle the registered status, then enqueue the byte.  The FIFO keeps
+     * ordering while uart_tx shifts earlier bytes in the background.
      */
-    while ((uart_status_stable() & (UART_TX_READY | UART_TX_BUSY)) != UART_TX_READY) {}
+    while (!(uart_status_stable() & UART_TX_READY)) {}
     MMIO32(UART_DATA) = value;
-    while (!(uart_status_stable() & UART_TX_BUSY)) {}
-    while (uart_status_stable() & UART_TX_BUSY) {}
 }
 
 static inline u8 uart_getc(void)
