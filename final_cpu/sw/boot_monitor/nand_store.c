@@ -198,7 +198,13 @@ int nand_store_init(void)
     diagnostics.directory_block0=directory_blocks[0];diagnostics.directory_block1=directory_blocks[1];
     va=read_directory_block(directory_blocks[0],&a);vb=read_directory_block(directory_blocks[1],&b);
     diagnostics.directory_result0=(u32)va;diagnostics.directory_result1=(u32)vb;
-    if(va&&vb){fill(&directory,0,sizeof(directory));diagnostics.init_result=1;return 1;}
+    if(va&&vb){
+        /* Keep an empty directory immediately installable.  Leaving magic at
+           zero makes the first commit look successful in RAM, but the next
+           boot rejects that persisted page and all slots appear empty. */
+        fill(&directory,0,sizeof(directory));directory.magic=DIR_MAGIC;
+        directory.crc=directory_crc(&directory);diagnostics.init_result=1;return 1;
+    }
     directory=(!va&&(vb||a.generation>=b.generation))?a:b;
     {u32 i;for(i=0;i<sizeof(bad_blocks);i++)bad_blocks[i]|=directory.runtime_bad[i];}
     diagnostics.selected_generation=directory.generation;
