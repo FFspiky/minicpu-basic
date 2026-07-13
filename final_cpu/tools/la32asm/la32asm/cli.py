@@ -133,9 +133,17 @@ def command_board(args, operation: FrameType) -> int:
         downloader = Downloader(port, retries=args.retries, timeout=args.timeout)
         if not args.no_reset:
             downloader.wait_ready(max(5.0, args.timeout * args.retries))
-        response = downloader.slot_command(
-            operation, getattr(args, "slot", None)
-        )
+        if operation == FrameType.SCAN_DIRECTORIES:
+            response = downloader.request(
+                operation,
+                struct.pack("<HH", args.start_block, args.count),
+                timeout=30.0,
+                retries=1,
+            )
+        else:
+            response = downloader.slot_command(
+                operation, getattr(args, "slot", None)
+            )
     if operation == FrameType.LIST:
         Path(args.output).write_bytes(response.payload)
         print(f"saved board directory to {args.output}")
@@ -158,14 +166,14 @@ def command_board(args, operation: FrameType) -> int:
             result[name] = f"0x{result[name]:08x}"
         print(json.dumps(result, indent=2))
     elif operation == FrameType.SCAN_DIRECTORIES:
-        header_layout = struct.Struct("<10I")
+        header_layout = struct.Struct("<11I")
         candidate_layout = struct.Struct("<III")
         expected_size = header_layout.size + 16 * candidate_layout.size
         if len(response.payload) != expected_size:
             raise RuntimeError(f"unexpected directory scan size: {len(response.payload)}")
         values = header_layout.unpack_from(response.payload)
         names = (
-            "version", "scanned_blocks", "raw_read_failures",
+            "version", "start_block", "scanned_blocks", "raw_read_failures",
             "page_magic_failures", "ecc_failures", "page_crc_failures",
             "directory_magic_failures", "directory_crc_failures",
             "valid_candidates", "stored_candidates",
@@ -234,6 +242,9 @@ def make_parser() -> argparse.ArgumentParser:
         if name in ("remove", "verify"):
             command.add_argument("--slot", type=int, choices=range(16), required=True)
         if name == "list": command.add_argument("-o", "--output", default="board-directory.bin")
+        if name == "scan-dirs":
+            command.add_argument("--start-block", type=int, choices=range(1024), default=0)
+            command.add_argument("--count", type=int, choices=range(1,65), default=32)
         command.set_defaults(func=lambda args, op=operation: command_board(args, op))
     studio = sub.add_parser("studio")
     studio.add_argument("--host", default="127.0.0.1")

@@ -38,7 +38,7 @@ struct __attribute__((packed)) nand_directory_candidate {
     u32 block, generation, valid_mask;
 };
 struct __attribute__((packed)) nand_directory_scan {
-    u32 version, scanned_blocks;
+    u32 version, start_block, scanned_blocks;
     u32 raw_read_failures, page_magic_failures, ecc_failures;
     u32 page_crc_failures, directory_magic_failures, directory_crc_failures;
     u32 valid_candidates, stored_candidates;
@@ -49,7 +49,7 @@ int nand_store_init(void);
 int nand_store_format(void);
 const struct program_directory *nand_directory(void);
 const struct nand_store_diagnostics *nand_diagnostics(void);
-const struct nand_directory_scan *nand_scan_directories(void);
+const struct nand_directory_scan *nand_scan_directories(u32 start_block,u32 block_count);
 int nand_install(u32 slot,const void *image,u32 size);
 int nand_remove(u32 slot);
 int nand_verify(u32 slot);

@@ -123,7 +123,9 @@ static void handle_frame(struct frame *f)
         }
         case FT_SCAN_DIRECTORIES:
         {
-            const struct nand_directory_scan *s=nand_scan_directories();
+            const struct nand_directory_scan *s;
+            if(f->length!=4){reply(FT_NACK,f->sequence,10);break;}
+            s=nand_scan_directories(read_u16(f->payload),read_u16(f->payload+2));
             send_frame(FT_DONE,f->sequence,(const u8 *)s,sizeof(*s));break;
         }
         default:reply(FT_NACK,f->sequence,0xff);break;

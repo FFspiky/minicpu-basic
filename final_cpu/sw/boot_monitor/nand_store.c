@@ -151,12 +151,17 @@ static int choose_directory_blocks(void)
 
 const struct program_directory *nand_directory(void){return &directory;}
 const struct nand_store_diagnostics *nand_diagnostics(void){return &diagnostics;}
-const struct nand_directory_scan *nand_scan_directories(void)
+const struct nand_directory_scan *nand_scan_directories(u32 start_block,u32 block_count)
 {
     static struct program_directory candidate;
-    u32 block,index;int result;
-    fill(&directory_scan,0,sizeof(directory_scan));directory_scan.version=1;
-    for(block=0;block<NAND_BLOCKS;block++) {
+    u32 block,end_block,index;int result;
+    fill(&directory_scan,0,sizeof(directory_scan));directory_scan.version=2;
+    if(start_block>NAND_BLOCKS)start_block=NAND_BLOCKS;
+    if(block_count>64)block_count=64;
+    end_block=start_block+block_count;
+    if(end_block>NAND_BLOCKS)end_block=NAND_BLOCKS;
+    directory_scan.start_block=start_block;
+    for(block=start_block;block<end_block;block++) {
         if(bad(block))continue;
         directory_scan.scanned_blocks++;
         result=read_directory_block(block,&candidate);
