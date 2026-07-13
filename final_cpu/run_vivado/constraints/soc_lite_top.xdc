@@ -1,11 +1,31 @@
 #set_property SEVERITY {Warning} [get_drc_checks RTSTAT-2]
 #时钟信号连接
 set_property PACKAGE_PIN AC19 [get_ports clk]
-set_property CLOCK_DEDICATED_ROUTE BACKBONE [get_nets clk]
 create_clock -period 10.000 -name clk -waveform {0.000 5.000} [get_ports clk]
 
 #reset
 set_property PACKAGE_PIN Y3 [get_ports resetn]
+
+# RS-232 transceiver logic-side UART and DTR loader request
+set_property PACKAGE_PIN F23 [get_ports uart_rx]
+set_property PACKAGE_PIN H19 [get_ports uart_tx]
+set_property PACKAGE_PIN F25 [get_ports uart_dtr]
+
+# K9F1G08U0C parallel NAND
+set_property PACKAGE_PIN AC24 [get_ports {nand_io[0]}]
+set_property PACKAGE_PIN V21  [get_ports {nand_io[1]}]
+set_property PACKAGE_PIN U20  [get_ports {nand_io[2]}]
+set_property PACKAGE_PIN U19  [get_ports {nand_io[3]}]
+set_property PACKAGE_PIN V18  [get_ports {nand_io[4]}]
+set_property PACKAGE_PIN Y21  [get_ports {nand_io[5]}]
+set_property PACKAGE_PIN Y20  [get_ports {nand_io[6]}]
+set_property PACKAGE_PIN W19  [get_ports {nand_io[7]}]
+set_property PACKAGE_PIN AA25 [get_ports nand_rb_n]
+set_property PACKAGE_PIN AB25 [get_ports nand_we_n]
+set_property PACKAGE_PIN W20  [get_ports nand_ale]
+set_property PACKAGE_PIN V19  [get_ports nand_cle]
+set_property PACKAGE_PIN AB24 [get_ports nand_ce_n]
+set_property PACKAGE_PIN AA24 [get_ports nand_re_n]
 
 # PS/2 keyboard
 set_property PACKAGE_PIN Y2  [get_ports ps2_clk]
@@ -71,39 +91,8 @@ set_property PACKAGE_PIN D4 [get_ports {num_a_g[5]}]
 set_property PACKAGE_PIN A2 [get_ports {num_a_g[6]}]
 #set_property PACKAGE_PIN C4 :DP
 
-#num_data
-set_property PACKAGE_PIN U24  [get_ports {num_data[0]}]
-set_property PACKAGE_PIN U25  [get_ports {num_data[1]}]
-set_property PACKAGE_PIN U26  [get_ports {num_data[2]}]
-set_property PACKAGE_PIN V26  [get_ports {num_data[3]}]
-set_property PACKAGE_PIN W26  [get_ports {num_data[4]}]
-set_property PACKAGE_PIN AB26 [get_ports {num_data[5]}]
-set_property PACKAGE_PIN AC26 [get_ports {num_data[6]}]
-set_property PACKAGE_PIN W25  [get_ports {num_data[7]}]
-set_property PACKAGE_PIN Y26  [get_ports {num_data[8]}]
-set_property PACKAGE_PIN Y25  [get_ports {num_data[9]}]
-set_property PACKAGE_PIN V24  [get_ports {num_data[10]}]
-set_property PACKAGE_PIN AB25 [get_ports {num_data[11]}]
-set_property PACKAGE_PIN AA23 [get_ports {num_data[12]}]
-set_property PACKAGE_PIN V23  [get_ports {num_data[13]}]
-set_property PACKAGE_PIN W23  [get_ports {num_data[14]}]
-set_property PACKAGE_PIN Y22  [get_ports {num_data[15]}]
-set_property PACKAGE_PIN Y23  [get_ports {num_data[16]}]
-set_property PACKAGE_PIN U22  [get_ports {num_data[17]}]
-set_property PACKAGE_PIN V22  [get_ports {num_data[18]}]
-set_property PACKAGE_PIN U21  [get_ports {num_data[19]}]
-set_property PACKAGE_PIN V21  [get_ports {num_data[20]}]
-set_property PACKAGE_PIN T20  [get_ports {num_data[21]}]
-set_property PACKAGE_PIN T19  [get_ports {num_data[22]}]
-set_property PACKAGE_PIN U15  [get_ports {num_data[23]}]
-set_property PACKAGE_PIN U16  [get_ports {num_data[24]}]
-set_property PACKAGE_PIN U14  [get_ports {num_data[25]}]
-set_property PACKAGE_PIN V14  [get_ports {num_data[26]}]
-set_property PACKAGE_PIN V16  [get_ports {num_data[27]}]
-set_property PACKAGE_PIN V17  [get_ports {num_data[28]}]
-set_property PACKAGE_PIN U17  [get_ports {num_data[29]}]
-set_property PACKAGE_PIN R7   [get_ports {num_data[30]}]
-set_property PACKAGE_PIN R6   [get_ports {num_data[31]}]
+# num_data is now an internal debug/MMIO bus. Its former GPIO pins are left
+# available for the board peripherals, including the parallel NAND interface.
 
 #switch
 set_property PACKAGE_PIN AC21 [get_ports {switch[7]}]
@@ -131,6 +120,9 @@ set_property PACKAGE_PIN V6 [get_ports {btn_step[1]}]
 
 set_property IOSTANDARD LVCMOS33 [get_ports clk]
 set_property IOSTANDARD LVCMOS33 [get_ports resetn]
+set_property IOSTANDARD LVCMOS33 [get_ports {uart_rx uart_tx uart_dtr}]
+set_property IOSTANDARD LVCMOS33 [get_ports {nand_io[*] nand_rb_n nand_cle nand_ale nand_ce_n nand_re_n nand_we_n}]
+set_property PULLUP true [get_ports nand_rb_n]
 set_property IOSTANDARD LVCMOS33 [get_ports {ps2_clk ps2_data}]
 set_property PULLUP true [get_ports {ps2_clk ps2_data}]
 set_property IOSTANDARD LVCMOS33 [get_ports {vga_r[*] vga_g[*] vga_b[*]}]
@@ -144,21 +136,19 @@ set_property IOSTANDARD LVCMOS33 [get_ports {switch[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {btn_key_col[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {btn_key_row[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {btn_step[*]}]
-set_property IOSTANDARD LVCMOS33 [get_ports {num_data[*]}]
 
 
-set cpu_clk_obj   [get_clocks -quiet cpu_clk_clk_pll]
-set timer_clk_obj [get_clocks -quiet timer_clk_clk_pll]
-set lcd_clk_obj   [get_clocks -quiet clk]
+# The 50 MHz CPU and 100 MHz peripheral clocks are related PLL outputs.  They
+# must remain timed together; false-pathing them hides real setup/hold issues.
 
-set_false_path -quiet -from $timer_clk_obj -to $cpu_clk_obj
-set_false_path -quiet -from $cpu_clk_obj -to $timer_clk_obj
-set_false_path -quiet -from $cpu_clk_obj -to $lcd_clk_obj
-
-# PS/2 key state crosses from the 100 MHz board clock into a two-flop CPU
-# synchronizer. Only the asynchronous first stage is exempt from timing.
-set external_key_sync0_regs [get_cells -hier -quiet -filter {NAME =~ *u_confreg/external_key_sync0_reg*}]
-set_false_path -quiet -from $lcd_clk_obj -to $external_key_sync0_regs
+# The prebuilt LCD cell divides its 100 MHz input by two using clk_2_reg and
+# routes that clock through a BUFG.  Name the divided clock so its sequential
+# logic is covered by timing analysis instead of appearing as unclocked logic.
+set lcd_div2_q [get_pins -quiet u_lcd_module/clk_2_reg/Q]
+set lcd_div2_c [get_pins -quiet u_lcd_module/clk_2_reg/C]
+if {[llength $lcd_div2_q] == 1 && [llength $lcd_div2_c] == 1} {
+    create_generated_clock -name lcd_core_clk -source $lcd_div2_c -divide_by 2 $lcd_div2_q
+}
 
 # The VGA sidebar color is sampled only on the 25 MHz pixel enable.
 set vga_sidebar_pixel_regs [get_cells -hier -quiet -filter {NAME =~ *u_vga_game_top/sidebar_pixel_latched_reg*}]

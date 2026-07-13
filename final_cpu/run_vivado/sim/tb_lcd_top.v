@@ -16,6 +16,16 @@ module tb_lcd_top;
     reg  [1:0]  btn_step;
     reg         ps2_clk;
     reg         ps2_data;
+    reg         uart_rx;
+    reg         uart_dtr;
+    wire        uart_tx;
+    tri  [7:0]  nand_io;
+    reg         nand_rb_n;
+    wire        nand_cle;
+    wire        nand_ale;
+    wire        nand_ce_n;
+    wire        nand_re_n;
+    wire        nand_we_n;
 
     wire        lcd_rst;
     wire        lcd_cs;
@@ -42,12 +52,21 @@ module tb_lcd_top;
     ) dut (
         .resetn      (resetn),
         .clk         (clk),
+        .uart_rx     (uart_rx),
+        .uart_dtr    (uart_dtr),
+        .uart_tx     (uart_tx),
+        .nand_io     (nand_io),
+        .nand_rb_n   (nand_rb_n),
+        .nand_cle    (nand_cle),
+        .nand_ale    (nand_ale),
+        .nand_ce_n   (nand_ce_n),
+        .nand_re_n   (nand_re_n),
+        .nand_we_n   (nand_we_n),
         .led         (led),
         .led_rg0     (led_rg0),
         .led_rg1     (led_rg1),
         .num_csn     (num_csn),
         .num_a_g     (num_a_g),
-        .num_data    (num_data),
         .switch      (switch),
         .btn_key_col (btn_key_col),
         .btn_key_row (btn_key_row),
@@ -86,6 +105,9 @@ module tb_lcd_top;
         btn_step    = 2'b11;
         ps2_clk     = 1'b1;
         ps2_data    = 1'b1;
+        uart_rx     = 1'b1;
+        uart_dtr    = 1'b0;
+        nand_rb_n   = 1'b1;
 
         #200;
         initial_commit_toggle = dut.game_commit_toggle;

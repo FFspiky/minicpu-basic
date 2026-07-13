@@ -12,9 +12,9 @@ module game_leaderboard(
     output wire [159:0] scores_bcd_packed,
     output reg  [3:0]   score_count
 );
-    reg commit_sync0;
-    reg commit_sync1;
-    reg commit_sync2;
+    (* ASYNC_REG = "TRUE" *) reg commit_sync0;
+    (* ASYNC_REG = "TRUE" *) reg commit_sync1;
+    (* ASYNC_REG = "TRUE" *) reg commit_sync2;
     reg [2:0] capture_delay;
     reg       capture_pending;
     reg [31:0] sample_flags;

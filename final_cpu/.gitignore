@@ -1,0 +1,8 @@
+sw/boot_monitor/obj/
+sw/selftest/build/
+tools/la32asm/build/
+tools/la32asm/.venv/
+tools/la32asm/racing_game.generated.s
+run_vivado/preflight/reports_*/
+**/__pycache__/
+*.pyc
