@@ -87,11 +87,16 @@ static int read_data_page(u32 page_addr,u8 *dst)
 }
 static int write_data_page(u32 page_addr,const u8 *src,u32 length,u32 slot,u32 index)
 {
+    u32 expected_crc;
     fill(page,0xff,sizeof(page));copy(page,src,length);page[2050]=(u8)slot;
     page[2051]=(u8)index;page[2052]=(u8)(index>>8);page[2053]=(u8)(index>>16);page[2054]=(u8)(index>>24);
-    make_ecc(page);if(raw_program(page_addr,page,NAND_PAGE_TOTAL))return -1;
+    make_ecc(page);expected_crc=crc32_update(0,page,NAND_PAGE_TOTAL);
+    if(raw_program(page_addr,page,NAND_PAGE_TOTAL))return -1;
     if(raw_read(page_addr,0,page,NAND_PAGE_TOTAL)||check_ecc(page)<0)return -2;
-    return 0;
+    /* ECC/CRC only proves that the page is internally consistent.  It may be
+       an old valid page if erase/program targeted the wrong row.  Compare the
+       complete readback with the exact page image prepared above. */
+    return crc32_update(0,page,NAND_PAGE_TOTAL)==expected_crc?0:-3;
 }
 
 static u32 directory_crc(const struct program_directory *d)
