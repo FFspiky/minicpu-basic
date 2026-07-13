@@ -31,7 +31,12 @@ module regfile(
         end
     end
 
-    assign rdata1 = (raddr1 == 5'b0) ? 32'b0 : rf[raddr1];
-    assign rdata2 = (raddr2 == 5'b0) ? 32'b0 : rf[raddr2];
+    // Write-through behavior makes a WB write visible to an ID read in the
+    // same cycle; younger EX-stage dependencies are handled by the explicit
+    // MEM/WB forwarding MUXes.
+    assign rdata1 = (raddr1 == 5'b0) ? 32'b0 :
+                    (wen && (waddr == raddr1)) ? wdata : rf[raddr1];
+    assign rdata2 = (raddr2 == 5'b0) ? 32'b0 :
+                    (wen && (waddr == raddr2)) ? wdata : rf[raddr2];
 
 endmodule

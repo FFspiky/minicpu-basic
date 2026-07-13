@@ -2,9 +2,8 @@
 `default_nettype none
 
 module tb_lcd_top;
-    // The STEP phase retires the reset-vector instruction at 1c000000.
-    // Stop RUN at the next deterministic commit so this remains a short
-    // control-path smoke test independent of the selected functional image.
+    // The STEP phase commits 1c000000; RUN then reaches this next sequential
+    // instruction immediately, making the stop-at-END_PC check deterministic.
     localparam [31:0] LCD_SIM_END_PC = 32'h1c000004;
 
     reg         clk;
@@ -32,6 +31,7 @@ module tb_lcd_top;
     wire        ct_scl;
     wire        ct_rstn;
     integer     timeout;
+    reg  [31:0] step_count_at_done;
 
     soc_lite_lcd_top #(
         .SIMULATION  (1'b1),
@@ -136,6 +136,26 @@ module tb_lcd_top;
                      dut.u_soc.debug_wb_pc,
                      dut.u_soc.debug_pipe_valid,
                      dut.u_soc.debug_pipe_hazard);
+            $fatal;
+        end
+
+        // END_PC must be the final architectural commit.  A registered,
+        // one-cycle-late commit bus used to allow the following instruction
+        // to reach WB before cpu_en was removed.
+        step_count_at_done = dut.u_soc.debug_step_count;
+        #200;
+        if (dut.u_soc.debug_commit_pc !== LCD_SIM_END_PC ||
+            dut.u_soc.debug_wb_pc !== LCD_SIM_END_PC ||
+            dut.u_soc.debug_step_count !== step_count_at_done)
+        begin
+            $display("FAIL: instruction after END_PC committed");
+            $display("DBG: end=%h cmt=%h wb=%h steps_before=%h steps_after=%h fetch=%h",
+                     LCD_SIM_END_PC,
+                     dut.u_soc.debug_commit_pc,
+                     dut.u_soc.debug_wb_pc,
+                     step_count_at_done,
+                     dut.u_soc.debug_step_count,
+                     dut.u_soc.debug_fetch_pc);
             $fatal;
         end
 

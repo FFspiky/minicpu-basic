@@ -42,11 +42,13 @@ module soc_lite_top #(
     output wire [31:0] debug_last_wb_wdata,
     output wire        debug_mode_run,
     output wire        debug_run_active,
-    output wire        debug_run_done
+    output wire        debug_run_done,
+    output wire        lcd_clk
 );
 
 wire cpu_clk;
 wire timer_clk;
+assign lcd_clk = timer_clk;
 reg  cpu_resetn;
 
 always @(posedge cpu_clk)
