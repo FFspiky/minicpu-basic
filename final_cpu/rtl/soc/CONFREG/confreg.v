@@ -90,7 +90,10 @@ THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 `define MENU_STATUS_ADDR  16'hff64  //32'hbfaf_ff64
 
 module confreg
-#(parameter SIMULATION=1'b0)
+#(
+    parameter SIMULATION=1'b0,
+    parameter integer CPU_CLOCK_HZ=50_000_000
+)
 (
     input  wire        clk,
     input  wire        timer_clk,
@@ -217,18 +220,31 @@ module confreg
     assign game_score         = game_score_data;
     assign game_commit_toggle = game_commit_toggle_r;
 
-    // read data has one cycle delay
+    // Read data has one cycle delay.  NAND page-buffer storage is a
+    // synchronous BRAM, so its controller produces the word one cycle after
+    // the request.  Select that response directly instead of registering it
+    // for a second cycle here.
     reg [31:0] conf_rdata_reg;
-    assign conf_rdata = conf_rdata_reg;
+    reg        nand_buffer_read_pending;
+    wire       nand_buffer_read_request = conf_en && !(|conf_we) &&
+                                             nand_mmio_select &&
+                                             conf_addr[15:12]==4'hc &&
+                                             conf_addr[11:2]<10'd528;
+    assign conf_rdata = nand_buffer_read_pending ? nand_mmio_rdata :
+                                                   conf_rdata_reg;
     always @(posedge clk)
     begin
         if(~resetn)
         begin
             conf_rdata_reg <= 32'd0;
+            nand_buffer_read_pending <= 1'b0;
         end
-        else if (conf_en)
+        else
         begin
-            case (conf_addr[15:0])
+            nand_buffer_read_pending <= nand_buffer_read_request;
+            if(conf_en)
+            begin
+              case (conf_addr[15:0])
                 `CR0_ADDR      : conf_rdata_reg <= cr0          ;
                 `CR1_ADDR      : conf_rdata_reg <= cr1          ;
                 `CR2_ADDR      : conf_rdata_reg <= cr2          ;
@@ -268,8 +284,9 @@ module confreg
                 `MENU_SELECT_ADDR: conf_rdata_reg <= {28'd0,menu_selected_slot_r};
                 `SLOT_VALID_ADDR : conf_rdata_reg <= {16'd0,menu_slot_valid_r};
                 `MENU_STATUS_ADDR: conf_rdata_reg <= {24'd0,menu_status_r};
-                default        : conf_rdata_reg <= nand_mmio_select ? nand_mmio_rdata : 32'd0;
-            endcase
+                  default        : conf_rdata_reg <= nand_mmio_select ? nand_mmio_rdata : 32'd0;
+              endcase
+            end
         end
     end
 
@@ -313,7 +330,10 @@ begin
     end
     else
     begin
-        if (write_system_mode)
+        // Leaving MENU is a one-way transition.  Only a warm/physical reset
+        // may restore MENU, so application software cannot remove boot-window
+        // write protection by writing SYSTEM_MODE.
+        if (write_system_mode && system_mode_r == 2'd0 && conf_wdata[1:0] != 2'd0)
             system_mode_r <= conf_wdata[1:0];
         if (write_dynamic_end)
             dynamic_end_pc_r <= conf_wdata;
@@ -529,7 +549,7 @@ wire       uart_frame_error_clear = write_uart_status & conf_wdata[10];
 assign uart_status = {21'd0, uart_rx_frame_error, uart_tx_busy,
                       uart_tx_ready, 6'd0, uart_rx_overflow, !uart_rx_empty};
 
-uart_rx #(.CLOCK_HZ(50_000_000), .BAUD(115_200)) u_uart_rx (
+uart_rx #(.CLOCK_HZ(CPU_CLOCK_HZ), .BAUD(115_200)) u_uart_rx (
     .clk(clk), .resetn(resetn), .enable(uart_ctrl[0]),
     .clear_error(uart_frame_error_clear), .rx(uart_rx_i),
     .data(uart_rx_data), .valid(uart_rx_valid), .frame_error(uart_rx_frame_error)
@@ -543,7 +563,7 @@ uart_fifo #(.DEPTH(16), .ADDR_WIDTH(4)) u_uart_rx_fifo (
     .overflow(uart_rx_overflow)
 );
 
-uart_tx #(.CLOCK_HZ(50_000_000), .BAUD(115_200)) u_uart_tx (
+uart_tx #(.CLOCK_HZ(CPU_CLOCK_HZ), .BAUD(115_200)) u_uart_tx (
     .clk(clk), .resetn(resetn), .enable(uart_ctrl[1]),
     .data(write_uart_data), .valid(write_uart_valid && uart_tx_ready),
     .tx(uart_tx_o), .ready(uart_tx_ready), .busy(uart_tx_busy)

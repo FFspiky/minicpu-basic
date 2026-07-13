@@ -10,7 +10,7 @@ module soc_lite_lcd_top #(
     input  wire        resetn,
     input  wire        clk,
     input  wire        uart_rx,
-    input  wire        uart_dtr,
+    output wire        uart_dtr,
     output wire        uart_tx,
     inout  wire [7:0]  nand_io,
     input  wire        nand_rb_n,
@@ -19,6 +19,7 @@ module soc_lite_lcd_top #(
     output wire        nand_ce_n,
     output wire        nand_re_n,
     output wire        nand_we_n,
+    output wire        nand_wp_n,
 
     output wire [15:0] led,
     output wire [1 :0] led_rg0,
@@ -51,6 +52,10 @@ module soc_lite_lcd_top #(
     output wire        ct_scl,
     output wire        ct_rstn
 );
+
+    // K9F1G08 WP# is an active-low hardware write protect input.  The board
+    // routes it to T19, so keep it deasserted for erase/program operations.
+    assign nand_wp_n = 1'b1;
 
     wire lcd_clk;
     wire clock_ready;

@@ -8,6 +8,10 @@ static void memory_move(u8 *dst,const u8 *src,u32 n)
     else if(dst>src)for(i=n;i;i--)dst[i-1]=src[i-1];
 }
 static void memory_zero(u8 *dst,u32 n){while(n--)*dst++=0;}
+static int ranges_overlap(u32 a,u32 an,u32 b,u32 bn)
+{
+    return an!=0 && bn!=0 && a<b+bn && b<a+an;
+}
 
 int image_validate(const void *raw,u32 size)
 {
@@ -46,19 +50,51 @@ int image_load_and_start(void *raw,u32 size,u32 slot)
 {
     u8 *blob=(u8 *)raw;
     struct la32img_header *h=(struct la32img_header *)raw;
-    struct la32img_segment *s;
-    u32 i,entry,end_pc,type,stack_top,system_mode;
+    struct la32img_segment *s,segments[8];
+    u8 moved[8];
+    u32 i,j,remaining,progress,header_size,segment_count;
+    u32 entry,end_pc,type,stack_top,system_mode;
     if(image_validate(raw,size))return -1;
     s=(struct la32img_segment *)(blob+sizeof(*h));
     entry=h->entry; end_pc=h->end_pc; type=h->type; stack_top=h->stack_top;
+    header_size=h->header_size; segment_count=h->segment_count;
+    for(i=0;i<segment_count;i++){segments[i]=s[i];moved[i]=0;}
     system_mode=(type==0)?3:type;
-    // Copy highest-address segments first so an in-RAM container cannot destroy
-    // a later payload before it is moved.
-    for(i=h->segment_count;i;i--) {
-        struct la32img_segment *seg=&s[i-1];
-        memory_move((u8 *)seg->load_address,blob+h->header_size+seg->payload_offset,seg->file_size);
-        memory_zero((u8 *)(seg->load_address+seg->file_size),seg->memory_size-seg->file_size);
+
+    /*
+     * The container itself occupies application RAM.  Select a relocation
+     * whose destination does not overlap any other segment's source payload;
+     * copying it cannot destroy data that is still needed.  Segment metadata
+     * is kept on the monitor stack because the first relocation may overwrite
+     * the image header and segment table.
+     */
+    remaining=segment_count;
+    while(remaining) {
+        progress=0;
+        for(i=0;i<segment_count;i++) {
+            u32 dst;
+            if(moved[i])continue;
+            dst=segments[i].load_address;
+            for(j=0;j<segment_count;j++) {
+                u32 src;
+                if(i==j||moved[j])continue;
+                src=(u32)(blob+header_size+segments[j].payload_offset);
+                if(ranges_overlap(dst,segments[i].file_size,
+                                  src,segments[j].file_size))break;
+            }
+            if(j!=segment_count)continue;
+            memory_move((u8 *)dst,
+                        blob+header_size+segments[i].payload_offset,
+                        segments[i].file_size);
+            moved[i]=1;remaining--;progress=1;break;
+        }
+        if(!progress)return -2;
     }
+
+    /* No payload source remains live, so BSS clearing cannot corrupt it. */
+    for(i=0;i<segment_count;i++)
+        memory_zero((u8 *)(segments[i].load_address+segments[i].file_size),
+                    segments[i].memory_size-segments[i].file_size);
     MMIO32(ACTIVE_SLOT)=slot; MMIO32(DYNAMIC_END_PC)=end_pc; MMIO32(SYSTEM_MODE)=system_mode;
     __asm__ volatile("or $sp,%0,$r0\n\tjirl $r0,%1,0"::"r"(stack_top),"r"(entry):"memory");
     return 0;

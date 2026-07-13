@@ -11,7 +11,7 @@ module soc_lite_top #(
     input  wire        resetn,
     input  wire        clk,
     input  wire        uart_rx,
-    input  wire        uart_dtr,
+    output wire        uart_dtr,
     input  wire        warm_reset_request,
     output wire        uart_tx,
     inout  wire [7:0]  nand_io,
@@ -78,21 +78,33 @@ wire cpu_clk;
 wire timer_clk;
 wire pll_locked;
 reg  cpu_resetn;
-(* ASYNC_REG = "TRUE" *) reg [1:0] uart_dtr_sync;
-reg        uart_dtr_last;
+// Behavioral simulations bypass the PLL and use a matched accelerated UART
+// model.  On hardware CLKOUT0 is 40 MHz while the serial line remains 115200.
+localparam integer UART_CLOCK_HZ = SIMULATION ? 50_000_000 : 40_000_000;
+localparam integer UART_BREAK_CYCLES = SIMULATION ? 8_000 : 80_000;
+(* ASYNC_REG = "TRUE" *) reg [1:0] uart_rx_reset_sync;
+reg [16:0] uart_break_count;
+reg        uart_break_armed;
 (* ASYNC_REG = "TRUE" *) reg [1:0] warm_request_sync;
 reg        warm_request_last;
 reg  [4:0] warm_reset_count;
-wire       warm_reset_active = warm_reset_count != 0;
+wire       uart_break_event = uart_break_armed && !uart_rx_reset_sync[1] &&
+                              (uart_break_count == UART_BREAK_CYCLES - 1);
+wire       warm_reset_active = (warm_reset_count != 0) || !uart_break_armed;
 
 assign lcd_clk = timer_clk;
+// The board schematic connects FPGA_UART_DTR to a line-driver input, so F25
+// is an FPGA output.  Keep DTR deasserted; host-triggered reset uses a BREAK
+// on the real receive path instead of trying to read this output-only net.
+assign uart_dtr = 1'b1;
 
 always @(posedge cpu_clk)
 begin
     if (!resetn || !pll_locked)
     begin
-        uart_dtr_sync   <= 2'b00;
-        uart_dtr_last   <= 1'b0;
+        uart_rx_reset_sync <= 2'b11;
+        uart_break_count <= 17'd0;
+        uart_break_armed <= 1'b1;
         warm_request_sync <= 2'b00;
         warm_request_last <= 1'b0;
         warm_reset_count <= 5'd0;
@@ -100,11 +112,22 @@ begin
     end
     else
     begin
-        uart_dtr_sync <= {uart_dtr_sync[0], uart_dtr};
-        uart_dtr_last <= uart_dtr_sync[1];
+        uart_rx_reset_sync <= {uart_rx_reset_sync[0], uart_rx};
+        if (uart_rx_reset_sync[1])
+        begin
+            uart_break_count <= 17'd0;
+            uart_break_armed <= 1'b1;
+        end
+        else if (uart_break_armed)
+        begin
+            if (uart_break_event)
+                uart_break_armed <= 1'b0;
+            else
+                uart_break_count <= uart_break_count + 1'b1;
+        end
         warm_request_sync <= {warm_request_sync[0], warm_reset_request};
         warm_request_last <= warm_request_sync[1];
-        if ((uart_dtr_sync[1] && !uart_dtr_last) ||
+        if (uart_break_event || !uart_break_armed ||
             (warm_request_sync[1] && !warm_request_last))
             warm_reset_count <= 5'd16;
         else if (warm_reset_count != 0)
@@ -466,6 +489,7 @@ begin: sim_unified_ram
     wire [31:0] data_addr_mapped;
     wire [17:0] inst_word_addr;
     wire [17:0] data_word_addr;
+    wire        data_write_allowed;
 
     assign inst_addr_need_highest_4bits = cpu_inst_addr[31:28] != 4'h0 &&
                                           cpu_inst_addr[31:28] != 4'h1 &&
@@ -484,6 +508,11 @@ begin: sim_unified_ram
                               {12'b0, 4'hf, data_sram_addr[31:28], data_sram_addr[11:0]} :
                               data_sram_addr;
     assign data_word_addr = data_addr_mapped[19:2];
+    // The resident monitor keeps its mutable state in the boot-window BSS.
+    // It may update that state only while the SoC is in MENU mode.  Once an
+    // application starts, the complete 64 KiB boot window is write protected.
+    assign data_write_allowed = (system_mode == 2'd0) ||
+                                (data_addr_mapped[19:0] >= 20'h10000);
 
     assign cpu_inst_rdata  = inst_rdata_r;
     assign data_sram_rdata = data_rdata_r;
@@ -507,19 +536,19 @@ begin: sim_unified_ram
         if (data_sram_en)
         begin
             data_rdata_r <= ram[data_word_addr];
-            if (data_addr_mapped[19:0] >= 20'h10000 && data_sram_we[0])
+            if (data_write_allowed && data_sram_we[0])
             begin
                 ram[data_word_addr][ 7: 0] <= data_sram_wdata[ 7: 0];
             end
-            if (data_addr_mapped[19:0] >= 20'h10000 && data_sram_we[1])
+            if (data_write_allowed && data_sram_we[1])
             begin
                 ram[data_word_addr][15: 8] <= data_sram_wdata[15: 8];
             end
-            if (data_addr_mapped[19:0] >= 20'h10000 && data_sram_we[2])
+            if (data_write_allowed && data_sram_we[2])
             begin
                 ram[data_word_addr][23:16] <= data_sram_wdata[23:16];
             end
-            if (data_addr_mapped[19:0] >= 20'h10000 && data_sram_we[3])
+            if (data_write_allowed && data_sram_we[3])
             begin
                 ram[data_word_addr][31:24] <= data_sram_wdata[31:24];
             end
@@ -538,6 +567,7 @@ begin: board_unified_ram
     wire [31:0] data_addr_mapped;
     wire [17:0] inst_word_addr;
     wire [17:0] data_word_addr;
+    wire        data_write_allowed;
 
     assign inst_addr_need_highest_4bits = cpu_inst_addr[31:28] != 4'h0 &&
                                           cpu_inst_addr[31:28] != 4'h1 &&
@@ -556,6 +586,10 @@ begin: board_unified_ram
                               {12'b0, 4'hf, data_sram_addr[31:28], data_sram_addr[11:0]} :
                               data_sram_addr;
     assign data_word_addr = data_addr_mapped[19:2];
+    // See simulation_unified_ram above.  Keep the board and simulation RAM
+    // protection policies identical so protocol regressions are reproducible.
+    assign data_write_allowed = (system_mode == 2'd0) ||
+                                (data_addr_mapped[19:0] >= 20'h10000);
 
     assign cpu_inst_rdata  = inst_rdata_r;
     assign data_sram_rdata = data_rdata_r;
@@ -575,19 +609,19 @@ begin: board_unified_ram
         if (data_sram_en)
         begin
             data_rdata_r <= ram[data_word_addr];
-            if (data_addr_mapped[19:0] >= 20'h10000 && data_sram_we[0])
+            if (data_write_allowed && data_sram_we[0])
             begin
                 ram[data_word_addr][ 7: 0] <= data_sram_wdata[ 7: 0];
             end
-            if (data_addr_mapped[19:0] >= 20'h10000 && data_sram_we[1])
+            if (data_write_allowed && data_sram_we[1])
             begin
                 ram[data_word_addr][15: 8] <= data_sram_wdata[15: 8];
             end
-            if (data_addr_mapped[19:0] >= 20'h10000 && data_sram_we[2])
+            if (data_write_allowed && data_sram_we[2])
             begin
                 ram[data_word_addr][23:16] <= data_sram_wdata[23:16];
             end
-            if (data_addr_mapped[19:0] >= 20'h10000 && data_sram_we[3])
+            if (data_write_allowed && data_sram_we[3])
             begin
                 ram[data_word_addr][31:24] <= data_sram_wdata[31:24];
             end
@@ -596,7 +630,10 @@ begin: board_unified_ram
 end
 endgenerate
 
-confreg #(.SIMULATION(SIMULATION)) u_confreg
+confreg #(
+    .SIMULATION(SIMULATION),
+    .CPU_CLOCK_HZ(UART_CLOCK_HZ)
+) u_confreg
 (
     .clk         (cpu_clk),
     .timer_clk   (timer_clk),

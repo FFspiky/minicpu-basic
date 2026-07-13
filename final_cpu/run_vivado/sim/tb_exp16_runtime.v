@@ -6,13 +6,14 @@ module tb_exp16_runtime;
     wire [1:0] led_rg0,led_rg1;
     wire [31:0] debug_commit_pc;
     wire debug_commit_valid;
+    wire uart_dtr;
     tri [7:0] nand_io;
     integer cycles;
 
     always #5 clk=~clk;
 
     soc_lite_top #(.SIMULATION(1'b1),.SINGLE_STEP(1'b0)) dut(
-        .resetn(resetn),.clk(clk),.uart_rx(1'b1),.uart_dtr(1'b0),
+        .resetn(resetn),.clk(clk),.uart_rx(1'b1),.uart_dtr(uart_dtr),
         .warm_reset_request(1'b0),.nand_io(nand_io),.nand_rb_n(1'b1),
         .switch(8'hff),.btn_key_row(4'hf),.btn_step(2'b11),
         .external_key_state(16'd0),.lcd_status(32'd0),

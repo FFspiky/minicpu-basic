@@ -38,13 +38,28 @@ static void reply(u8 type,u16 sequence,u8 code){send_frame(type,sequence,&code,1
 
 static int receive_frame(struct frame *f)
 {
-    u8 head[5];u16 i;u32 got,crc;
-    if(uart_getc()!=SOF)return -1;
-    for(i=0;i<5;i++)head[i]=uart_getc();
+    u8 byte,head[5];u16 i;u32 got,crc;
+    /*
+     * A damaged byte must not leave the monitor blocked inside a partial
+     * frame indefinitely.  Ignore the 0x55 training preamble, seek the next
+     * SOF, and place a finite deadline on every byte after it.  The PC can
+     * then retransmit the same idempotent frame after a line error.
+     */
+    do {
+        if(uart_getc_timeout(&byte,UART_BYTE_TIMEOUT_TICKS))return -4;
+    } while(byte!=SOF);
+    for(i=0;i<5;i++)if(uart_getc_timeout(&head[i],UART_BYTE_TIMEOUT_TICKS))return -4;
     f->type=head[0];f->sequence=read_u16(head+1);f->length=read_u16(head+3);
     if(f->length>sizeof(f->payload))return -2;
-    for(i=0;i<f->length;i++)f->payload[i]=uart_getc();
-    got=(u32)uart_getc();got|=(u32)uart_getc()<<8;got|=(u32)uart_getc()<<16;got|=(u32)uart_getc()<<24;
+    for(i=0;i<f->length;i++)if(uart_getc_timeout(&f->payload[i],UART_BYTE_TIMEOUT_TICKS))return -4;
+    if(uart_getc_timeout(&byte,UART_BYTE_TIMEOUT_TICKS))return -4;
+    got=(u32)byte;
+    if(uart_getc_timeout(&byte,UART_BYTE_TIMEOUT_TICKS))return -4;
+    got|=(u32)byte<<8;
+    if(uart_getc_timeout(&byte,UART_BYTE_TIMEOUT_TICKS))return -4;
+    got|=(u32)byte<<16;
+    if(uart_getc_timeout(&byte,UART_BYTE_TIMEOUT_TICKS))return -4;
+    got|=(u32)byte<<24;
     crc=crc32_update(0,head,5);crc=crc32_update(crc,f->payload,f->length);
     return crc==got?0:-3;
 }
@@ -117,7 +132,7 @@ int main(void)
 {
     int store;u32 selected=0;struct frame frame;
     MMIO32(SYSTEM_MODE)=0;MMIO32(MENU_SELECTED)=0;MMIO32(MENU_STATUS)=1;
-    put_text("LA32BOOT 1\r\n");store=nand_store_init();
+    uart_reset_receiver();put_text("LA32BOOT 1\r\n");store=nand_store_init();
     if(store<0)MMIO32(MENU_STATUS)=0xff;else {MMIO32(MENU_STATUS)=store?0xfe:0;update_menu();}
     send_frame(FT_READY,0,0,0);
     for(;;)
@@ -129,7 +144,7 @@ int main(void)
         if((pressed&KEY_R)&&store==0){MMIO32(MENU_STATUS)=nand_verify(selected)?0xff:0;}
         if(uart_available())
         {
-            if(receive_frame(&frame))MMIO32(MENU_STATUS)=0xff;
+            if(receive_frame(&frame)){uart_reset_receiver();MMIO32(MENU_STATUS)=0xff;}
             else handle_frame(&frame);
         }
     }

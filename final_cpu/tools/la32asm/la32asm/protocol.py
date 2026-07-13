@@ -90,33 +90,89 @@ class Downloader:
                 return
         raise TimeoutError("board did not enter the boot monitor")
 
-    def request(self, frame_type: FrameType, payload: bytes = b"") -> Frame:
+    def request(
+        self,
+        frame_type: FrameType,
+        payload: bytes = b"",
+        *,
+        timeout: float | None = None,
+        retries: int | None = None,
+    ) -> Frame:
         frame = Frame(frame_type, self.sequence, payload)
-        for _ in range(self.retries):
+        response_timeout = self.timeout if timeout is None else timeout
+        attempt_count = self.retries if retries is None else retries
+        for _ in range(attempt_count):
             self.serial.write(frame.pack())
-            try:
-                response = read_frame(self.serial, self.timeout)
-            except TimeoutError:
-                continue
-            if response.sequence != self.sequence:
-                continue
-            if response.frame_type == FrameType.NACK:
-                raise RuntimeError(f"board rejected frame {self.sequence}: {response.payload.hex()}")
-            if response.frame_type in (FrameType.ACK, FrameType.DONE):
-                self.sequence = (self.sequence + 1) & 0xFFFF
-                return response
+            deadline = time.monotonic() + response_timeout
+            while time.monotonic() < deadline:
+                try:
+                    response = read_frame(
+                        self.serial,
+                        max(0.001, deadline - time.monotonic()),
+                    )
+                except (TimeoutError, ValueError):
+                    break
+
+                # A physical reset can leave more than one READY frame in the
+                # UART receive queue.  READY and stale replies are unsolicited
+                # here: ignore them without retransmitting the current command.
+                # Retransmission is only safe after the whole reply window has
+                # expired.
+                if response.frame_type == FrameType.READY:
+                    continue
+                if response.sequence != self.sequence:
+                    continue
+                if response.frame_type == FrameType.NACK:
+                    raise RuntimeError(f"board rejected frame {self.sequence}: {response.payload.hex()}")
+                if response.frame_type in (FrameType.ACK, FrameType.DONE):
+                    self.sequence = (self.sequence + 1) & 0xFFFF
+                    return response
         raise TimeoutError(f"no acknowledgement for frame {self.sequence}")
 
-    def transfer_image(self, image: bytes, operation: FrameType, slot: int = 0) -> None:
+    def transfer_image(
+        self,
+        image: bytes,
+        operation: FrameType,
+        slot: int = 0,
+        progress=None,
+    ) -> None:
         if operation not in (FrameType.INSTALL, FrameType.RUN_TEMPORARY):
             raise ValueError("operation must be INSTALL or RUN_TEMPORARY")
+        total_frames = (len(image) + MAX_DATA - 1) // MAX_DATA
+        if progress:
+            progress("prepare", 0, total_frames, 0, len(image))
         self.request(operation, struct.pack("<BI", slot, len(image)))
         self.request(FrameType.HEADER, image[: min(len(image), 512)])
-        for offset in range(0, len(image), MAX_DATA):
+        for frame_index, offset in enumerate(range(0, len(image), MAX_DATA), 1):
             chunk = image[offset:offset + MAX_DATA]
+            # Keep stop-and-wait flow control: while the monitor computes the
+            # frame CRC and transmits its ACK it does not drain the 16-byte RX
+            # FIFO, so sending the next frame early could overflow the board.
             self.request(FrameType.DATA, struct.pack("<I", offset) + chunk)
-        self.request(FrameType.END, struct.pack("<I", zlib.crc32(image) & 0xFFFFFFFF))
+            if progress:
+                progress(
+                    "transfer",
+                    frame_index,
+                    total_frames,
+                    offset + len(chunk),
+                    len(image),
+                )
+        # END performs image validation and, for INSTALL, synchronous NAND
+        # erase/program/readback before the monitor replies.  It must not use
+        # the sub-second per-frame timeout used by ordinary UART traffic.
+        if progress:
+            progress("commit", total_frames, total_frames, len(image), len(image))
+        self.request(
+            FrameType.END,
+            struct.pack("<I", zlib.crc32(image) & 0xFFFFFFFF),
+            timeout=120.0,
+            retries=2,
+        )
+        if progress:
+            progress("done", total_frames, total_frames, len(image), len(image))
 
     def slot_command(self, operation: FrameType, slot: int | None = None) -> Frame:
         payload = b"" if slot is None else bytes([slot])
+        if operation in (FrameType.FORMAT, FrameType.VERIFY, FrameType.REMOVE):
+            return self.request(operation, payload, timeout=120.0, retries=2)
         return self.request(operation, payload)

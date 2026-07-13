@@ -17,7 +17,7 @@ module tb_lcd_top;
     reg         ps2_clk;
     reg         ps2_data;
     reg         uart_rx;
-    reg         uart_dtr;
+    wire        uart_dtr;
     wire        uart_tx;
     tri  [7:0]  nand_io;
     reg         nand_rb_n;
@@ -106,7 +106,6 @@ module tb_lcd_top;
         ps2_clk     = 1'b1;
         ps2_data    = 1'b1;
         uart_rx     = 1'b1;
-        uart_dtr    = 1'b0;
         nand_rb_n   = 1'b1;
 
         #200;

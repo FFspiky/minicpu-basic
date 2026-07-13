@@ -4,6 +4,7 @@
 module tb_generic_c_runtime;
     reg clk=0, resetn=0;
     wire serial_tx;
+    wire uart_dtr;
     wire [7:0] rx_data;
     wire rx_valid;
     wire rx_frame_error;
@@ -15,7 +16,7 @@ module tb_generic_c_runtime;
 
     soc_lite_top #(.SIMULATION(1'b1),.SINGLE_STEP(1'b0)) dut(
         .resetn(resetn),.clk(clk),.uart_rx(1'b1),.uart_tx(serial_tx),
-        .uart_dtr(1'b0),.warm_reset_request(1'b0),
+        .uart_dtr(uart_dtr),.warm_reset_request(1'b0),
         .nand_io(nand_io),.nand_rb_n(1'b1),
         .switch(8'hff),.btn_key_row(4'hf),.btn_step(2'b11),
         .external_key_state(16'd0),.lcd_status(32'd0));

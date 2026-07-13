@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import shlex
 import struct
 import subprocess
 import sys
@@ -19,7 +21,112 @@ BUILD = FINAL_CPU / "tools" / "la32asm" / "build"
 STATIC = FINAL_CPU / "tools" / "la32asm" / "studio"
 SERIAL_LOCK = threading.Lock()
 BUILD_LOCK = threading.Lock()
-COMPILER = "/opt/loongarch32r/bin/loongarch32r-linux-gnusf-gcc"
+PROGRESS_LOCK = threading.Lock()
+COMPILER = os.environ.get(
+    "LA32_GCC", "/opt/loongarch32r/bin/loongarch32r-linux-gnusf-gcc"
+)
+MONITOR_READY_TIMEOUT = 180.0
+TRANSFER_RETRIES = 5
+TRANSFER_TIMEOUT = 0.75
+# The UART uses a fixed divisor rather than auto-baud, so a long 0x55 train
+# provides no calibration benefit.  More importantly, it can fill the 16-byte
+# board FIFO while the monitor is scanning NAND after reset.  Keep an opt-in
+# diagnostic preamble, but send none during normal Studio operation.
+UART_SYNC_BYTES = int(os.environ.get("LA32_UART_SYNC_BYTES", "0"))
+
+_PROGRESS = {
+    "active": False,
+    "operation": "idle",
+    "phase": "idle",
+    "detail": "等待操作",
+    "current": 0,
+    "total": 0,
+    "bytes_sent": 0,
+    "bytes_total": 0,
+    "percent": 0.0,
+    "started_at": 0.0,
+    "updated_at": 0.0,
+    "error": "",
+}
+
+
+def _progress_begin(operation: str, detail: str, bytes_total: int = 0) -> None:
+    now = time.time()
+    with PROGRESS_LOCK:
+        _PROGRESS.update({
+            "active": True,
+            "operation": operation,
+            "phase": "connecting",
+            "detail": detail,
+            "current": 0,
+            "total": 0,
+            "bytes_sent": 0,
+            "bytes_total": bytes_total,
+            "percent": 0.0,
+            "started_at": now,
+            "updated_at": now,
+            "error": "",
+        })
+
+
+def _progress_update(
+    phase: str,
+    detail: str,
+    current: int = 0,
+    total: int = 0,
+    bytes_sent: int = 0,
+    bytes_total: int = 0,
+) -> None:
+    with PROGRESS_LOCK:
+        values = {
+            "phase": phase,
+            "detail": detail,
+            "updated_at": time.time(),
+        }
+        if total:
+            values.update({
+                "current": current,
+                "total": total,
+                "percent": 100.0 * current / total,
+            })
+        if bytes_total:
+            values.update({"bytes_sent": bytes_sent, "bytes_total": bytes_total})
+        _PROGRESS.update(values)
+
+
+def _progress_finish(detail: str, error: str = "") -> None:
+    with PROGRESS_LOCK:
+        _PROGRESS.update({
+            "active": False,
+            "phase": "error" if error else "complete",
+            "detail": detail,
+            "percent": _PROGRESS["percent"] if error else 100.0,
+            "updated_at": time.time(),
+            "error": error,
+        })
+
+
+def _progress_snapshot() -> dict:
+    with PROGRESS_LOCK:
+        result = dict(_PROGRESS)
+    result["elapsed"] = max(0.0, time.time() - result["started_at"]) if result["started_at"] else 0.0
+    return result
+
+
+def _transfer_progress(operation: FrameType):
+    def update(phase, current, total, bytes_sent, bytes_total):
+        if phase == "prepare":
+            detail = "板端已连接，正在建立镜像传输"
+        elif phase == "transfer":
+            detail = f"正在发送并确认数据帧 {current}/{total}"
+        elif phase == "commit" and operation == FrameType.INSTALL:
+            detail = "镜像发送完成，正在擦除、写入并校验NAND"
+        elif phase == "commit":
+            detail = "镜像发送完成，正在校验并启动程序"
+        else:
+            detail = "板端已确认镜像"
+        _progress_update(phase, detail, current, total, bytes_sent, bytes_total)
+    return update
 
 
 class PortRequest(BaseModel):
@@ -46,6 +153,11 @@ class RunSourceRequest(BaseModel):
     port: str
 
 
+class RunImageRequest(BaseModel):
+    image: str
+    port: str
+
+
 def _serial(port_name: str):
     try:
         import serial
@@ -54,8 +166,79 @@ def _serial(port_name: str):
     return serial.Serial(port_name, 115200, timeout=0.5)
 
 
-def _dtr(port):
-    port.dtr=False;time.sleep(.05);port.dtr=True;time.sleep(.05);port.dtr=False
+def _break_reset(port):
+    """Request a warm reset by holding the UART receive line in BREAK."""
+    port.send_break(duration=0.05)
+
+
+def _sync_uart(port):
+    """Optionally send a diagnostic 0x55 preamble; fixed-baud mode needs none."""
+    if UART_SYNC_BYTES:
+        port.write(b"\x55" * UART_SYNC_BYTES)
+        port.flush()
+
+
+def _probe_monitor(port, timeout=0.2) -> Downloader | None:
+    """Probe with a short, non-mutating invalid-slot VERIFY/NACK exchange."""
+    probe = Downloader(port, retries=1, timeout=timeout)
+    try:
+        probe.request(
+            FrameType.VERIFY, bytes([0xFF]), timeout=timeout, retries=1
+        )
+        return probe
+    except RuntimeError:
+        # Slot 255 is invalid by construction; its well-formed NACK proves the
+        # monitor is alive without requesting the 1072-byte directory frame.
+        return probe
+    except (TimeoutError, ValueError):
+        return None
+
+
+def _boot_monitor(port) -> Downloader:
+    """Attach to a running menu or a monitor reset at any time in the window."""
+    port.reset_input_buffer()
+    _sync_uart(port)
+    _progress_update("connecting", "正在探测Boot Monitor；若应用仍在运行，请复位一次")
+
+    # READY is emitted only once during monitor startup.  If Studio opens the
+    # COM port after the VGA menu is already visible, that frame is gone even
+    # though the monitor is ready.  LIST is a harmless liveness probe and the
+    # v1 monitor echoes our sequence number without keeping sequence state.
+    probe = _probe_monitor(port)
+    if probe is not None:
+        # The probe intentionally uses one short attempt.  Never reuse that
+        # diagnostic Downloader for an image transfer: doing so disabled the
+        # protocol's retries and made installs fail at a random frame number.
+        _progress_update("connected", "Boot Monitor已响应")
+        return Downloader(
+            port, retries=TRANSFER_RETRIES, timeout=TRANSFER_TIMEOUT
+        )
+
+    # Do not reset the board automatically after a failed probe.  It may
+    # already be scanning NAND during monitor startup; another BREAK would
+    # restart that scan and repeated web requests could keep it in LOADING
+    # forever.  If an application is running, the operator presses physical
+    # reset once as instructed by the Studio UI.
+    deadline = time.monotonic() + MONITOR_READY_TIMEOUT
+    downloader = Downloader(port, retries=1, timeout=0.25)
+    while time.monotonic() < deadline:
+        try:
+            downloader.wait_ready(min(0.25, deadline - time.monotonic()))
+            _progress_update("connected", "已收到Boot Monitor READY")
+            return Downloader(
+                port, retries=TRANSFER_RETRIES, timeout=TRANSFER_TIMEOUT
+            )
+        except TimeoutError:
+            pass
+        probe = _probe_monitor(port, timeout=0.25)
+        if probe is not None:
+            _progress_update("connected", "Boot Monitor已响应")
+            return Downloader(
+                port, retries=TRANSFER_RETRIES, timeout=TRANSFER_TIMEOUT
+            )
+    raise TimeoutError(
+        "board did not enter the boot monitor; reset once only if an application is running"
+    )
 
 
 def _wsl_path(path: Path) -> str:
@@ -74,7 +257,7 @@ def _compile_c(source: Path, output: Path) -> str:
         "-Werror=int-conversion", "-Werror=incompatible-pointer-types",
         "-Os", _wsl_path(source), "-o", _wsl_path(output),
     ]
-    command = " ".join(subprocess.list2cmdline([part]) for part in arguments)
+    command = " ".join(shlex.quote(part) for part in arguments)
     completed = subprocess.run(
         ["wsl", "bash", "-lc", command], capture_output=True,
     )
@@ -93,15 +276,7 @@ def build_racing() -> dict:
     BUILD.mkdir(parents=True, exist_ok=True)
     source = FINAL_CPU / "sw" / "game" / "racing_game.c"
     generated = BUILD / "racing_game.s"
-    linux_source = "/mnt/d/CPU_DESIGN/final_cpu/sw/game/racing_game.c"
-    linux_output = "/mnt/d/CPU_DESIGN/final_cpu/tools/la32asm/build/racing_game.s"
-    command = (
-        "/opt/loongarch32r/bin/loongarch32r-linux-gnusf-gcc -S "
-        "-march=loongarch32r -mabi=ilp32s -msoft-float -ffreestanding "
-        "-fno-builtin -fno-pic -fno-pie -fno-stack-protector -Os "
-        f"{linux_source} -o {linux_output}"
-    )
-    subprocess.run(["wsl", "bash", "-lc", command], check=True, capture_output=True)
+    _compile_c(source, generated)
     result = Assembler().assemble_files(
         [FINAL_CPU / "sw" / "game" / "start.S", generated],
         name="Racing Game", image_type=ImageType.GAME, entry="_start"
@@ -158,32 +333,48 @@ def build_generic(source_text: str) -> dict:
     }
 
 
+def run_image(image_path: str | Path, port_name: str) -> dict:
+    image = Path(image_path).read_bytes()
+    output = bytearray()
+    completed = False
+    _progress_begin("run", "正在连接板端运行环境", len(image))
+    try:
+        with SERIAL_LOCK, _serial(port_name) as port:
+            downloader = _boot_monitor(port)
+            downloader.transfer_image(
+                image,
+                FrameType.RUN_TEMPORARY,
+                progress=_transfer_progress(FrameType.RUN_TEMPORARY),
+            )
+            _progress_update("output", "程序已启动，正在采集UART输出")
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                chunk = port.read(1)
+                if not chunk:
+                    continue
+                if chunk == b"\x04":
+                    completed = True
+                    break
+                output.extend(chunk)
+                if len(output) >= 64 * 1024:
+                    break
+    except Exception as error:
+        _progress_finish("运行失败", str(error))
+        raise
+    result = {
+        "output": output.decode("utf-8", "replace"),
+        "completed": completed,
+    }
+    if not completed:
+        result["output"] += "\n[Studio: output capture timed out or exceeded 64 KiB]"
+    _progress_finish("程序执行完成" if completed else "程序已启动，输出采集超时")
+    return result
+
+
 def run_generic(source_text: str, port_name: str) -> dict:
     with BUILD_LOCK:
         report = build_generic(source_text)
-        image = Path(report["image"]).read_bytes()
-    output = bytearray()
-    completed = False
-    with SERIAL_LOCK, _serial(port_name) as port:
-        _dtr(port)
-        downloader = Downloader(port)
-        downloader.wait_ready(5.0)
-        downloader.transfer_image(image, FrameType.RUN_TEMPORARY)
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline:
-            chunk = port.read(1)
-            if not chunk:
-                continue
-            if chunk == b"\x04":
-                completed = True
-                break
-            output.extend(chunk)
-            if len(output) >= 64 * 1024:
-                break
-    report["output"] = output.decode("utf-8", "replace")
-    report["completed"] = completed
-    if not completed:
-        report["output"] += "\n[Studio: output capture timed out or exceeded 64 KiB]"
+    report.update(run_image(report["image"], port_name))
     return report
 
 
@@ -246,6 +437,8 @@ def create_app():
             from serial.tools import list_ports
             return [{"device":p.device,"description":p.description} for p in list_ports.comports()]
         except Exception as e: raise HTTPException(500,str(e))
+    @app.get("/api/progress")
+    def progress(): return _progress_snapshot()
     @app.post("/api/build/racing")
     def build():
         try:return build_racing()
@@ -263,47 +456,73 @@ def create_app():
     def run_user_program(req:RunSourceRequest):
         try:return run_generic(req.source,req.port)
         except Exception as e:raise HTTPException(500,str(e))
+    @app.post("/api/run/image")
+    def run_built_image(req:RunImageRequest):
+        try:return run_image(req.image,req.port)
+        except Exception as e:raise HTTPException(500,str(e))
     @app.post("/api/slots")
     def slots(req:PortRequest):
+        _progress_begin("list", "正在连接板端并读取NAND目录")
         try:
             with SERIAL_LOCK,_serial(req.port) as port:
-                _dtr(port);downloader=Downloader(port);downloader.wait_ready(5.0)
+                downloader=_boot_monitor(port)
+                _progress_update("directory", "正在接收NAND程序目录")
                 response=downloader.slot_command(FrameType.LIST)
-            return parse_directory(response.payload)
-        except Exception as e:raise HTTPException(500,str(e))
+            result=parse_directory(response.payload)
+            _progress_finish("NAND目录读取完成")
+            return result
+        except Exception as e:
+            _progress_finish("读取目录失败",str(e));raise HTTPException(500,str(e))
     @app.post("/api/install")
     def install(req:InstallRequest):
+        image=Path(req.image or BUILD/"racing.la32img").read_bytes()
+        _progress_begin("install",f"正在连接板端并准备安装到槽{req.slot}",len(image))
         try:
-            image=Path(req.image or BUILD/"racing.la32img").read_bytes()
             with SERIAL_LOCK,_serial(req.port) as port:
-                _dtr(port);downloader=Downloader(port);downloader.wait_ready(5.0)
-                downloader.transfer_image(image,FrameType.INSTALL,req.slot)
-            return {"ok":True}
-        except Exception as e:raise HTTPException(500,str(e))
+                downloader=_boot_monitor(port)
+                downloader.transfer_image(
+                    image,FrameType.INSTALL,req.slot,
+                    progress=_transfer_progress(FrameType.INSTALL),
+                )
+                _progress_update("directory","安装完成，正在刷新NAND目录")
+                response=downloader.slot_command(FrameType.LIST)
+            result={"ok":True,"slots":parse_directory(response.payload)}
+            _progress_finish(f"程序已安装到槽{req.slot}")
+            return result
+        except Exception as e:
+            _progress_finish("安装失败",str(e));raise HTTPException(500,str(e))
     @app.post("/api/remove")
     def remove(req:SlotRequest):
         try:
             with SERIAL_LOCK,_serial(req.port) as port:
-                _dtr(port);downloader=Downloader(port);downloader.wait_ready(5.0)
+                downloader=_boot_monitor(port)
                 downloader.slot_command(FrameType.REMOVE,req.slot)
-            return {"ok":True}
+                response=downloader.slot_command(FrameType.LIST)
+            return {"ok":True,"slots":parse_directory(response.payload)}
         except Exception as e:raise HTTPException(500,str(e))
     @app.post("/api/verify")
     def verify(req:SlotRequest):
         try:
             with SERIAL_LOCK,_serial(req.port) as port:
-                _dtr(port);downloader=Downloader(port);downloader.wait_ready(5.0)
+                downloader=_boot_monitor(port)
                 downloader.slot_command(FrameType.VERIFY,req.slot)
             return {"ok":True}
         except Exception as e:raise HTTPException(500,str(e))
     @app.post("/api/format")
     def format_store(req:PortRequest):
+        _progress_begin("format","正在连接板端并初始化NAND程序盘")
         try:
             with SERIAL_LOCK,_serial(req.port) as port:
-                _dtr(port);downloader=Downloader(port);downloader.wait_ready(5.0)
+                downloader=_boot_monitor(port)
+                _progress_update("commit","正在擦除并写入双副本目录")
                 downloader.slot_command(FrameType.FORMAT)
-            return {"ok":True}
-        except Exception as e:raise HTTPException(500,str(e))
+                _progress_update("directory","正在读取初始化后的目录")
+                response=downloader.slot_command(FrameType.LIST)
+            result={"ok":True,"slots":parse_directory(response.payload)}
+            _progress_finish("程序盘初始化完成")
+            return result
+        except Exception as e:
+            _progress_finish("初始化失败",str(e));raise HTTPException(500,str(e))
     return app
 
 

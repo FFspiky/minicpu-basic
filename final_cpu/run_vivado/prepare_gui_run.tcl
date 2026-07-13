@@ -1,5 +1,5 @@
-# Prepare the existing final_cpu project for a clean GUI synthesis run without
-# launching synthesis or implementation.
+# Refresh and validate the existing final_cpu project without changing any run
+# state.  BUILD_SCOPE in run_lcd_impl.tcl is the only supported reset policy.
 #
 # From an open Vivado Tcl Console:
 #   source D:/CPU_DESIGN/final_cpu/run_vivado/prepare_gui_run.tcl
@@ -13,16 +13,8 @@ if {[current_project -quiet] eq ""} {
     set opened_here 1
 }
 
-# This script is specifically the gate for a fresh build. Discard old run
-# products so Vivado cannot reuse a checkpoint that still references clk_pll.
-if {[llength [get_runs -quiet impl_1]] != 0} {
-    reset_run impl_1
-}
-if {[llength [get_runs -quiet synth_1]] != 0} {
-    reset_run synth_1
-}
-
 source [file join $script_dir refresh_project_sources.tcl]
+source [file join $script_dir configure_timing_strategy.tcl]
 
 # board_clock_gen.v owns the PLL primitives. Remove the legacy Clock Wizard
 # parent IP so stale output products and duplicate IP constraints cannot enter
@@ -48,7 +40,7 @@ set_property top soc_lite_lcd_top [get_filesets sources_1]
 update_compile_order -fileset sources_1
 update_compile_order -fileset sim_1
 
-puts "GUI_RUN_PREPARED: tracked board_clock_gen active; legacy Clock Wizard removed; source set complete"
+puts "GUI_RUN_PREPARED: sources and timing strategy validated; no synthesis or implementation run was reset"
 
 if {$opened_here} {
     close_project

@@ -22,13 +22,13 @@ FPGA 只需烧录一次。此后更换赛车、流水线 EXP16 或其他程序�
 - `GAME`：VGA 显示赛车画面，CPU 连续运行。
 - `SELFTEST`：支持 STEP/RUN；VGA 显示 RUNNING、PASSED 或 FAILED。
 - LCD 始终显示 PC、指令、提交、写回、流水线 valid/hazard、cycle、step、模式及槽号等 CPU 调试信息，不显示赛车排行榜或游戏状态。
-- F12、DTR 或实体复位返回 Boot Monitor。
+- F12、UART BREAK 或实体复位返回 Boot Monitor。
 
 ## 内存布局
 
 | CPU 地址 | 用途 |
 |---|---|
-| `0x1c000000–0x1c00ffff` | 64 KiB Boot Monitor和异常保留区，硬件写保护 |
+| `0x1c000000–0x1c00ffff` | 64 KiB Boot Monitor和异常保留区；MENU时仅Monitor可写运行状态，应用模式下硬件写保护 |
 | `0x1c010000–0x1c0effff` | 896 KiB 当前应用代码、数据和BSS |
 | `0x1c0f0000–0x1c0fffff` | 64 KiB 用户栈 |
 
@@ -97,7 +97,7 @@ int main(void) {
 
 ## 硬件接口
 
-- UART：50 MHz、115200、8N1、RX=`F23`、TX=`H19`、DTR=`F25`。
+- CPU/UART时钟：40 MHz；UART线速仍为115200、8N1，分频为347个时钟/位（实际约115274，误差约+0.064%）。RX=`F23`、TX=`H19`；F25是板端DTR输出并保持未使能状态。Studio通过RX上的UART BREAK请求warm reset。
 - DB9为RS-232电平，应使用USB转RS-232线，不能直接连接USB-TTL。
 - NAND：K9F1G08U0C，16个固定程序槽，坏块扫描、每512字节单比特ECC及双副本目录。
 - VGA：菜单、赛车和SELFTEST状态。
@@ -109,8 +109,10 @@ int main(void) {
 - 赛车GCC汇编经自研汇编后的2740字节机器码与既有GNU结果逐字节一致。
 - 完整流水线EXP16 `n1～n58`已生成约532 KiB LA32IMG，并与重定位后的GNU参考机器码进行差分验证。
 - 完整EXP16已在`final_cpu`流水线RTL中实际运行通过：`PASS PIPELINE EXP16`，332,206周期后得到双绿灯结果。
-- UART仿真：`PASS UART`。
-- NAND READ ID、写页、读页、擦除仿真：`PASS NAND RAW`。
+- UART独立标准波形仿真：`PASS UART STANDARD 40MHz/115200 CLKS_PER_BIT=347`；TX按时钟逐位检查，RX使用理想115200波形驱动，不再用本工程RX解码本工程TX。
+- NAND READ ID、写页、读页、擦除、1/4/2048/2112字节传输、4路byte-enable、边界和超时仿真：`PASS NAND RAW BRAM`。
+- NAND页缓冲独立综合为`1 RAMB36E1`，控制器共`425 LUT / 280 FF`，不再使用约1.7万个页缓冲寄存器。
+- Boot Monitor集成仿真验证READY、长按键单次移动、下载第2帧DATA返回ACK、完整1072字节LIST回复、同步字节忽略、截断帧超时恢复、MENU写BSS及应用模式boot区写保护。
 - 通用C示例已在流水线CPU RTL中实际运行并经UART核对`c = 3`及程序结束标记：`PASS GENERIC C runtime output prefix and EOT`。
 - CRC与单比特ECC测试：`PASS CHECKSUM ECC`。
 - 全部RTL通过Vivado 2019.2 `xvlog`编译。
@@ -118,6 +120,7 @@ int main(void) {
 
 ## 尚需在Vivado GUI/开发板验证
 
+- 仓库中现有旧bitstream不包含本轮Boot写保护和NAND BRAM修复，必须按下方分阶段流程重新生成一次。
 - 综合、实现、时序收敛和比特流生成。
 - 真实RS-232、NAND坏块和ECC行为。
 - 完整EXP16的真实开发板STEP/RUN、LCD提交信息及板上trace表现。
@@ -138,15 +141,16 @@ PLL的100 MHz输出，因此PLL输入保持合法的
 
 | 信号 | FPGA管脚 | 信号 | FPGA管脚 |
 |---|---:|---|---:|
-| D0 | AC24 | D1 | V21 |
+| D0 | AC24 | D1 | W21 |
 | D2 | U20 | D3 | U19 |
 | D4 | V18 | D5 | Y21 |
 | D6 | Y20 | D7 | W19 |
 | R/B# | AA25 | RE# | AA24 |
-| WE# | AB25 | ALE | W20 |
+| WE# | AA22 | ALE | W20 |
 | CLE | V19 | CE# | AB24 |
+| WP# | T19 |  |  |
 
-`WP#`已在板上硬件上拉，没有FPGA管脚，不能再添加`nand_wp_n`顶层端口。
+`WP#`由FPGA的`T19`驱动；顶层`nand_wp_n`固定拉高以允许NAND擦除和编程。
 
 在Vivado Tcl Console中先执行：
 
@@ -176,9 +180,49 @@ STATIC_PREFLIGHT_PASS ports=114 package_pins=114
 
 预期输出`CLOCK_PATH_PASS pll=u_pll clkin_net=clk_in_ibuf`。
 
-之后在GUI中依次对`synth_1`和`impl_1`执行 **Reset Run**，再运行
-Synthesis、Implementation和Generate Bitstream。必须重置旧run；旧的
-`soc_lite_lcd_top_opt.dcp`包含失败时的PLL与错误NAND管脚，不能增量复用。
+硬件构建改用显式的阶段和修改范围，脚本不会再无条件重置两个run。首次建立本轮
+NAND新基线时依次执行：
+
+```powershell
+cd D:\CPU_DESIGN\final_cpu
+
+$env:BUILD_SCOPE='rtl'
+$env:BUILD_TARGET='synth'
+& 'D:\vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -nolog -nojournal -notrace `
+  -source run_vivado/run_lcd_impl.tcl
+
+$env:BUILD_SCOPE='reuse'
+$env:BUILD_TARGET='place'
+& 'D:\vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -nolog -nojournal -notrace `
+  -source run_vivado/run_lcd_impl.tcl
+
+$env:BUILD_SCOPE='reuse'
+$env:BUILD_TARGET='bitstream'
+& 'D:\vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -nolog -nojournal -notrace `
+  -source run_vivado/run_lcd_impl.tcl
+```
+
+`BUILD_SCOPE`含义：
+
+| 值 | 使用场景 |
+|---|---|
+| `rtl` | RTL或Boot Monitor MIF变化，重置综合和实现 |
+| `constraints` | 只改普通管脚/实现约束，保留综合、重置实现；若RTL比综合DCP新会拒绝运行 |
+| `reuse` | 同一份输入从综合继续到布局或bitstream，不主动重置 |
+| `clean` | PLL、顶层端口、源文件集合或工程结构改变，重建工程/IP |
+
+普通C、汇编、赛车或SELFTEST程序变化只走Studio/UART/NAND，不更新
+`mem/exp23/inst_ram.mif`，也不运行Vivado。`prepare_gui_run.tcl`现在只刷新并校验
+源文件，不重置run。
+
+新bitstream完成上板验收后，才可在Vivado批处理模式运行：
+
+```tcl
+source D:/CPU_DESIGN/final_cpu/run_vivado/capture_incremental_baseline.tcl
+```
+
+这会把稳定综合和已布线DCP保存到`run_vivado/checkpoints/`。之后的小型RTL或
+外设修改可设置`USE_INCREMENTAL=1`；结构性修改必须回到非增量完整构建。
 
 当前已完成的实现前验证：
 
@@ -187,11 +231,14 @@ Synthesis、Implementation和Generate Bitstream。必须重置旧run；旧的
 - 完整顶层通过`xvlog`编译和`xelab`静态展开；
 - LCD内部二分频时钟已约束，`check_timing no_clock`为0；
 - `PASS UART`；
-- `PASS NAND RAW`；
+- `PASS NAND RAW BRAM`，1/4/2048/2112字节往返、字节写使能、边界、超时和状态清除均通过；
+- NAND OOC综合为`425 LUT / 280 FF / 1 RAMB36E1`；
+- `PASS CONFREG NAND synchronous BRAM response`；
+- `PASS BOOT monitor BSS, key edge, frame 2 ACK and write protection`；
 - `PASS PIPELINE EXP16 cycles=332206 pc=1c02027c`；
 - 自研工具链10项单元/集成测试全部通过；
 - `PASS GENERIC C runtime output prefix and EOT`；
-- Boot Monitor为11540字节，低于64 KiB boot区限制。
+- Boot Monitor为11936字节，低于64 KiB boot区限制。
 
 未在命令行代替用户运行完整综合、布局布线或生成bitstream。新的实现结果仍需在
 GUI中确认routed timing summary的WNS/WHS均不小于0，并确认routed DRC没有

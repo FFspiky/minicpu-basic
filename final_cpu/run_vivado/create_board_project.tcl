@@ -171,3 +171,7 @@ update_compile_order -fileset sim_1
 # writes the updated source-set to the existing .xpr without creating a copy.
 close_project
 open_project $project_file
+
+# Keep command-line and GUI-created projects on the same timing-oriented
+# implementation strategy.  This changes physical implementation only.
+source [file join $script_dir configure_timing_strategy.tcl]

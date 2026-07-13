@@ -23,12 +23,16 @@ module board_clock_gen(
         .COMPENSATION("ZHOLD"),
         .STARTUP_WAIT("FALSE"),
         .DIVCLK_DIVIDE(1),
-        .CLKFBOUT_MULT(9),
+        .CLKFBOUT_MULT(8),
         .CLKFBOUT_PHASE(0.000),
-        .CLKOUT0_DIVIDE(18),
+        // Keep the 100 MHz peripheral/VGA clock unchanged, but give the CPU
+        // and unified-RAM path enough implementation margin.  Use an exact
+        // 2:5 relationship: 800/20 = 40 MHz and 800/8 = 100 MHz.  The former
+        // 45/100 MHz pair created 1.111 ns related-clock capture windows.
+        .CLKOUT0_DIVIDE(20),
         .CLKOUT0_PHASE(0.000),
         .CLKOUT0_DUTY_CYCLE(0.500),
-        .CLKOUT1_DIVIDE(9),
+        .CLKOUT1_DIVIDE(8),
         .CLKOUT1_PHASE(0.000),
         .CLKOUT1_DUTY_CYCLE(0.500),
         .CLKIN1_PERIOD(10.000)

@@ -133,6 +133,50 @@
     .artifact-bar .label { color: var(--muted); font-size: 12px; }
     #artifact { font-weight: 600; }
 
+    .progress-panel {
+      display: grid;
+      gap: 9px;
+      padding: 12px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    .progress-panel[hidden] { display: none; }
+    .progress-summary,
+    .progress-detail-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    #progress-phase { font-weight: 650; }
+    #progress-meta, #progress-bytes {
+      color: var(--muted);
+      font: 12px Consolas, monospace;
+      white-space: nowrap;
+    }
+    .progress-track {
+      height: 8px;
+      overflow: hidden;
+      border-radius: 4px;
+      background: #e5e9ef;
+    }
+    #progress-fill {
+      width: 0;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--accent);
+      transition: width .18s ease;
+    }
+    .progress-panel.complete #progress-fill { background: var(--success); }
+    .progress-panel.error #progress-fill { background: var(--danger); }
+    .progress-panel.indeterminate #progress-fill {
+      width: 32%;
+      animation: progress-scan 1.15s ease-in-out infinite alternate;
+    }
+    #progress-detail { color: var(--muted); }
+    @keyframes progress-scan { from { transform: translateX(-100%); } to { transform: translateX(310%); } }
+
     .section {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -299,6 +343,20 @@
       </div>
     </section>
 
+    <section id="progress-panel" class="progress-panel" aria-live="polite" hidden>
+      <div class="progress-summary">
+        <span id="progress-phase">等待操作</span>
+        <span id="progress-meta">0% · 0.0 s</span>
+      </div>
+      <div class="progress-track" role="progressbar" aria-label="板端操作进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div id="progress-fill"></div>
+      </div>
+      <div class="progress-detail-row">
+        <span id="progress-detail">尚未开始</span>
+        <span id="progress-bytes"></span>
+      </div>
+    </section>
+
     <section class="section">
       <div class="section-header">
         <div>
@@ -333,6 +391,17 @@ int main(void)
       </div>
     </section>
 
+    <section class="section listing">
+      <div class="section-header">
+        <div>
+          <h2>自研汇编器机器码清单</h2>
+          <p>地址、机器码与源文件行的对应关系。</p>
+        </div>
+        <button type="button" onclick="copyText('listing')">复制清单</button>
+      </div>
+      <pre id="listing">尚无构建输出。</pre>
+    </section>
+
     <section class="section output">
       <div class="section-header">
         <div>
@@ -362,21 +431,12 @@ int main(void)
       <div id="operation-log" class="operation-log">等待操作。</div>
     </section>
 
-    <section class="section listing">
-      <div class="section-header">
-        <div>
-          <h2>自研汇编器机器码清单</h2>
-          <p>地址、机器码与源文件行的对应关系。</p>
-        </div>
-        <button type="button" onclick="copyText('listing')">复制清单</button>
-      </div>
-      <pre id="listing">尚无构建输出。</pre>
-    </section>
   </main>
 
   <script>
     let currentImage = null;
     let currentArtifact = null;
+    let progressTimer = null;
     const $ = id => document.getElementById(id);
     const disconnected = '无法连接本地服务。请重新运行 start_studio.ps1，并保持 PowerShell 窗口开启。';
 
@@ -394,6 +454,80 @@ int main(void)
     function setBusy(busy, message) {
       document.querySelectorAll('button').forEach(button => button.disabled = busy);
       if (message) state(message, '');
+    }
+
+    function formatBytes(value) {
+      const bytes = Number(value || 0);
+      if (bytes < 1024) return `${bytes.toLocaleString('zh-CN')} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+      return `${(bytes / 1024 / 1024).toFixed(2)} MiB`;
+    }
+
+    function showProgressPending(label) {
+      const panel = $('progress-panel');
+      panel.hidden = false;
+      panel.className = 'progress-panel indeterminate';
+      $('progress-phase').textContent = label;
+      $('progress-detail').textContent = '正在等待板端响应';
+      $('progress-meta').textContent = '准备中';
+      $('progress-bytes').textContent = '';
+      $('progress-fill').style.width = '35%';
+      panel.querySelector('.progress-track').setAttribute('aria-valuenow', '0');
+    }
+
+    function renderProgress(progress) {
+      const panel = $('progress-panel');
+      const phaseNames = {
+        idle: '等待操作', connecting: '连接 Boot Monitor', connected: '板端已连接',
+        prepare: '准备镜像', transfer: '传输镜像', commit: '板端写入与校验',
+        directory: '读取 NAND 目录', output: '采集程序输出', done: '操作完成',
+        complete: '操作完成', error: '操作失败'
+      };
+      const elapsed = Number(progress.elapsed || 0);
+      const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+      const complete = progress.phase === 'done' || progress.phase === 'complete';
+      const determinate = Number(progress.total || 0) > 0 || complete;
+      panel.hidden = !progress.active && progress.phase === 'idle';
+      panel.className = `progress-panel${determinate ? '' : ' indeterminate'}${complete ? ' complete' : ''}${progress.phase === 'error' ? ' error' : ''}`;
+      $('progress-phase').textContent = phaseNames[progress.phase] || progress.operation || '板端操作';
+      $('progress-detail').textContent = progress.error || progress.detail || '正在处理';
+      $('progress-meta').textContent = `${determinate ? percent + '%' : '处理中'} · ${elapsed.toFixed(1)} s`;
+      $('progress-fill').style.width = determinate ? `${percent}%` : '35%';
+      panel.querySelector('.progress-track').setAttribute('aria-valuenow', String(percent));
+
+      const frameText = progress.total ? `帧 ${progress.current}/${progress.total}` : '';
+      const byteText = progress.bytes_total ? `${formatBytes(progress.bytes_sent)} / ${formatBytes(progress.bytes_total)}` : '';
+      $('progress-bytes').textContent = [frameText, byteText].filter(Boolean).join(' · ');
+    }
+
+    async function pollProgress() {
+      try {
+        const response = await fetch('/api/progress', { cache: 'no-store' });
+        if (response.ok) renderProgress(await response.json());
+      } catch (_) {
+        // The main request reports connection errors; polling stays silent.
+      }
+    }
+
+    function startProgressPolling(label) {
+      showProgressPending(label);
+      clearInterval(progressTimer);
+      progressTimer = setInterval(pollProgress, 250);
+    }
+
+    async function stopProgressPolling() {
+      clearInterval(progressTimer);
+      progressTimer = null;
+      await pollProgress();
+    }
+
+    async function boardApi(path, body, label) {
+      startProgressPolling(label);
+      try {
+        return await api(path, body);
+      } finally {
+        await stopProgressPolling();
+      }
     }
 
     function readableError(text) {
@@ -486,11 +620,13 @@ int main(void)
     async function runGeneric() {
       try {
         const port = selectedPort();
-        setBusy(true, '正在构建、临时下载并等待程序输出');
-        const result = await api('/api/run/generic', { source: sourceText(), port });
-        showBuild(result, 'C Playground', 'playground.c（可编辑）', 'playground.gcc.s');
-        $('program-output').textContent = result.output || '(程序没有输出)';
-        state(result.completed ? '程序已执行完成，输出已从开发板返回' : '程序已运行，但输出采集超时', result.completed ? 'ok' : 'error');
+        setBusy(true, '正在构建当前 C：GCC -S → 自研汇编 → LA32IMG');
+        const build = await api('/api/build/generic', { source: sourceText() });
+        showBuild(build, 'C Playground', 'playground.c（可编辑）', 'playground.gcc.s');
+        state('构建完成，正在连接板端菜单；如果板子仍在运行应用，请短按一次实体复位', '');
+        const run = await boardApi('/api/run/image', { image: build.image, port }, '正在连接 Boot Monitor');
+        $('program-output').textContent = run.output || '(程序没有输出)';
+        state(run.completed ? '程序已执行完成，输出已从开发板返回' : '程序已运行，但输出采集超时', run.completed ? 'ok' : 'error');
       } catch (error) {
         state(error.message, 'error');
       } finally {
@@ -551,10 +687,10 @@ int main(void)
         if (!currentImage) throw new Error('请先构建赛车或流水线 EXP16。');
         const port = selectedPort();
         const slot = selectedSlot();
-        setBusy(true, `正在将 ${currentArtifact.name} 安装到槽 ${slot}`);
-        await api('/api/install', { port, slot, image: currentImage });
+        setBusy(true, `正在连接板端菜单并将 ${currentArtifact.name} 安装到槽 ${slot}；仅在板子仍运行应用时按一次复位`);
+        const result = await boardApi('/api/install', { port, slot, image: currentImage }, `正在安装到槽 ${slot}`);
+        renderSlots(result.slots);
         state(`${currentArtifact.name} 已安装到槽 ${slot}`, 'ok');
-        await slots();
       } catch (error) {
         state(error.message, 'error');
       } finally {
@@ -566,20 +702,24 @@ int main(void)
       return ['GENERIC', 'GAME', 'SELFTEST'][value] || `TYPE ${value}`;
     }
 
+    function renderSlots(rows) {
+      $('slots').innerHTML = rows.map(row => `
+        <tr>
+          <td class="slot-index">${row.slot.toString(16).toUpperCase().padStart(2, '0')}</td>
+          <td><span class="slot-state ${row.valid ? 'valid' : ''}">${row.valid ? '已安装' : '空闲'}</span></td>
+          <td class="name ${row.valid ? '' : 'empty'}">${row.valid ? escapeHtml(row.name) : '—'}</td>
+          <td class="${row.valid ? '' : 'empty'}">${row.valid ? imageType(row.type) : '—'}</td>
+          <td class="mono ${row.valid ? '' : 'empty'}">${row.valid ? row.size.toLocaleString('zh-CN') + ' B' : '—'}</td>
+          <td class="mono ${row.valid ? '' : 'empty'}">${row.valid ? row.crc.toUpperCase() : '—'}</td>
+        </tr>`).join('');
+    }
+
     async function slots() {
       try {
         const port = selectedPort();
-        setBusy(true, '正在读取板端NAND目录');
-        const rows = await api('/api/slots', { port });
-        $('slots').innerHTML = rows.map(row => `
-          <tr>
-            <td class="slot-index">${row.slot.toString(16).toUpperCase().padStart(2, '0')}</td>
-            <td><span class="slot-state ${row.valid ? 'valid' : ''}">${row.valid ? '已安装' : '空闲'}</span></td>
-            <td class="name ${row.valid ? '' : 'empty'}">${row.valid ? escapeHtml(row.name) : '—'}</td>
-            <td class="${row.valid ? '' : 'empty'}">${row.valid ? imageType(row.type) : '—'}</td>
-            <td class="mono ${row.valid ? '' : 'empty'}">${row.valid ? row.size.toLocaleString('zh-CN') + ' B' : '—'}</td>
-            <td class="mono ${row.valid ? '' : 'empty'}">${row.valid ? row.crc.toUpperCase() : '—'}</td>
-          </tr>`).join('');
+        setBusy(true, '正在连接板端菜单并读取NAND目录；仅在板子仍运行应用时按一次复位');
+        const rows = await boardApi('/api/slots', { port }, '正在读取 NAND 目录');
+        renderSlots(rows);
         state('NAND目录已更新', 'ok');
       } catch (error) {
         state(error.message, 'error');
@@ -592,9 +732,9 @@ int main(void)
       if (!confirm('初始化程序盘会删除16个槽中的全部程序。确认继续？')) return;
       try {
         const port = selectedPort();
-        setBusy(true, '正在初始化板端程序盘');
-        await api('/api/format', { port });
-        renderEmptySlots('空闲');
+        setBusy(true, '正在连接板端菜单并初始化程序盘；仅在板子仍运行应用时按一次复位');
+        const result = await boardApi('/api/format', { port }, '正在初始化程序盘');
+        renderSlots(result.slots);
         state('程序盘初始化完成', 'ok');
       } catch (error) {
         state(error.message, 'error');

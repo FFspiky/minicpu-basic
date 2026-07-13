@@ -6,7 +6,6 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
-import time
 
 from .assembler import Assembler, AssemblyError
 from .image import Image, ImageType
@@ -29,12 +28,9 @@ def _open_serial(port: str, baud: int = 115200):
     return handle
 
 
-def _toggle_dtr(handle) -> None:
-    handle.dtr = False
-    time.sleep(0.05)
-    handle.dtr = True
-    time.sleep(0.05)
-    handle.dtr = False
+def _send_break_reset(handle) -> None:
+    """Request the board monitor through the UART RX data path."""
+    handle.send_break(duration=0.05)
 
 
 def command_assemble(args) -> int:
@@ -120,7 +116,7 @@ def command_transfer(args, operation: FrameType) -> int:
     Image.unpack(blob)
     with _open_serial(args.port, args.baud) as port:
         if not args.no_reset:
-            _toggle_dtr(port)
+            _send_break_reset(port)
         downloader = Downloader(port, retries=args.retries, timeout=args.timeout)
         if not args.no_reset:
             downloader.wait_ready(max(5.0, args.timeout * args.retries))
@@ -132,7 +128,7 @@ def command_transfer(args, operation: FrameType) -> int:
 def command_board(args, operation: FrameType) -> int:
     with _open_serial(args.port, args.baud) as port:
         if not args.no_reset:
-            _toggle_dtr(port)
+            _send_break_reset(port)
         downloader = Downloader(port, retries=args.retries, timeout=args.timeout)
         if not args.no_reset:
             downloader.wait_ready(max(5.0, args.timeout * args.retries))

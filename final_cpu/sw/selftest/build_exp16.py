@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 
@@ -24,7 +26,15 @@ def main() -> int:
     source = SELFTEST / "trace_exp16"
     generated = SELFTEST / "build" / "trace_exp16"
     if sys.platform == "win32":
-        subprocess.run(["wsl", "bash", wsl_path(source / "preprocess.sh"), wsl_path(generated)], check=True)
+        compiler = os.environ.get(
+            "LA32_GCC", "/opt/loongarch32r/bin/loongarch32r-linux-gnusf-gcc"
+        )
+        command = "LA32_GCC={} bash {} {}".format(
+            shlex.quote(compiler),
+            shlex.quote(wsl_path(source / "preprocess.sh")),
+            shlex.quote(wsl_path(generated)),
+        )
+        subprocess.run(["wsl", "bash", "-lc", command], check=True)
     else:
         subprocess.run(["bash", str(source / "preprocess.sh"), str(generated)], check=True)
 

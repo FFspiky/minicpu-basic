@@ -12,9 +12,10 @@ synth_design -top soc_lite_lcd_top -part $part
 file mkdir $impl_dir
 file mkdir $report_dir
 opt_design
-place_design
-phys_opt_design
-route_design
+place_design -directive ExtraNetDelay_high
+phys_opt_design -directive Explore
+route_design -directive Explore
+phys_opt_design -directive Explore
 
 report_timing_summary -delay_type max -report_unconstrained -check_timing_verbose \
     -file [file join $report_dir timing_summary.rpt]

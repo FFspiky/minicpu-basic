@@ -1,9 +1,12 @@
 import struct
 import unittest
+from unittest.mock import patch
 
 from la32asm.assembler import Assembler, AssemblyError
 from la32asm.image import Image, ImageError, ImageType
 from la32asm.protocol import Downloader, Frame, FrameType
+from la32asm.cli import _send_break_reset
+from la32asm.studio import _boot_monitor, _probe_monitor
 
 
 class AssemblerTests(unittest.TestCase):
@@ -73,9 +76,35 @@ _start:
         names = [name for name in result.symbols if "local_value" in name]
         self.assertEqual(len(names), 2)
         self.assertTrue(all(result.symbols[name] % 8 == 0 for name in names))
-        bss = result.image.segments[-1]
-        self.assertEqual(len(bss.data), 0)
-        self.assertGreaterEqual(bss.memory_size, 12)
+        load_segment = result.image.segments[0]
+        self.assertEqual(len(result.image.segments), 1)
+        self.assertGreater(load_segment.memory_size, len(load_segment.data))
+        self.assertGreaterEqual(load_segment.memory_size - len(load_segment.data), 12)
+
+    def test_image_is_safe_for_in_place_monitor_loading(self):
+        result = Assembler().assemble([("multi.s", """
+.text
+_start: la.local $a0, message
+.rodata
+message: .asciz "hello"
+.data
+.align 2
+value: .word 7
+.bss
+.align 4
+scratch: .space 32
+""")], entry="_start")
+        self.assertEqual(len(result.image.segments), 1)
+        segment = result.image.segments[0]
+        blob = result.image.pack()
+        memory = bytearray(blob)
+        memory.extend(b"\xaa" * (segment.memory_size + 64))
+        header_size = len(blob) - len(segment.data)
+        source = bytes(memory[header_size:header_size + len(segment.data)])
+        memory[:len(source)] = source
+        memory[len(source):segment.memory_size] = b"\0" * (segment.memory_size - len(source))
+        self.assertEqual(bytes(memory[:len(segment.data)]), segment.data)
+        self.assertEqual(memory[len(segment.data):segment.memory_size], b"\0" * (segment.memory_size - len(segment.data)))
 
 
 class ImageTests(unittest.TestCase):
@@ -104,6 +133,121 @@ class ProtocolTests(unittest.TestCase):
         downloader = Downloader(stream, timeout=0.01)
         downloader.wait_ready(0.1)
         self.assertEqual(downloader.sequence, 23)
+
+    def test_downloader_ignores_duplicate_ready_without_retransmitting(self):
+        class SerialBytes:
+            def __init__(self, data):
+                self.data = bytearray(data)
+                self.writes = []
+            def read(self, size):
+                chunk = self.data[:size]
+                del self.data[:size]
+                return bytes(chunk)
+            def write(self, data):
+                self.writes.append(bytes(data))
+                return len(data)
+
+        stream = SerialBytes(
+            Frame(FrameType.READY, 0).pack()
+            + Frame(FrameType.ACK, 0, b"\0").pack()
+        )
+        downloader = Downloader(stream, timeout=0.05)
+        response = downloader.request(FrameType.LIST)
+        self.assertEqual(response.frame_type, FrameType.ACK)
+        self.assertEqual(downloader.sequence, 1)
+        self.assertEqual(len(stream.writes), 1)
+
+    def test_image_transfer_uses_256_byte_data_chunks(self):
+        class TransferSerial:
+            def __init__(self):
+                self.data = bytearray()
+                self.requests = []
+            def write(self, data):
+                request = Frame.unpack(bytes(data))
+                self.requests.append(request)
+                self.data.extend(Frame(FrameType.ACK, request.sequence, b"\0").pack())
+                return len(data)
+            def read(self, size):
+                chunk = self.data[:size]
+                del self.data[:size]
+                return bytes(chunk)
+
+        stream = TransferSerial()
+        downloader = Downloader(stream, retries=2, timeout=0.05)
+        progress = []
+        downloader.transfer_image(
+            bytes(1025), FrameType.INSTALL, 0,
+            progress=lambda *event: progress.append(event),
+        )
+        data = [request for request in stream.requests if request.frame_type == FrameType.DATA]
+        self.assertEqual([len(request.payload) for request in data], [260, 260, 260, 260, 5])
+        self.assertEqual(
+            [struct.unpack_from("<I", request.payload)[0] for request in data],
+            [0, 256, 512, 768, 1024],
+        )
+        self.assertEqual([event[0] for event in progress], [
+            "prepare", "transfer", "transfer", "transfer", "transfer",
+            "transfer", "commit", "done",
+        ])
+        self.assertEqual(progress[-1][1:], (5, 5, 1025, 1025))
+
+    def test_studio_attaches_to_existing_monitor_without_reset(self):
+        class MonitorSerial:
+            def __init__(self):
+                self.data = bytearray()
+                self.reset_count = 0
+            def reset_input_buffer(self):
+                self.data.clear()
+                self.reset_count += 1
+            def write(self, data):
+                request = Frame.unpack(bytes(data))
+                self.data.extend(Frame(FrameType.DONE, request.sequence, b"directory").pack())
+                return len(data)
+            def read(self, size):
+                chunk = self.data[:size]
+                del self.data[:size]
+                return bytes(chunk)
+
+        stream = MonitorSerial()
+        with patch("la32asm.studio._sync_uart") as sync_uart, \
+             patch("la32asm.studio._break_reset") as break_reset:
+            downloader = _boot_monitor(stream)
+        # _boot_monitor deliberately returns a fresh, fully retried
+        # Downloader after the one-shot liveness probe.  The board protocol
+        # is stateless with respect to sequence numbers, so transfers restart
+        # at zero.
+        self.assertEqual(downloader.sequence, 0)
+        self.assertEqual(stream.reset_count, 1)
+        sync_uart.assert_called_once_with(stream)
+        break_reset.assert_not_called()
+
+    def test_host_reset_uses_uart_break(self):
+        class BreakSerial:
+            def __init__(self):
+                self.durations = []
+            def send_break(self, duration):
+                self.durations.append(duration)
+
+        stream = BreakSerial()
+        _send_break_reset(stream)
+        self.assertEqual(stream.durations, [0.05])
+
+    def test_monitor_probe_does_not_require_ready_banner(self):
+        class MonitorSerial:
+            def __init__(self):
+                self.data = bytearray()
+            def write(self, data):
+                request = Frame.unpack(bytes(data))
+                self.data.extend(Frame(FrameType.DONE, request.sequence, b"directory").pack())
+                return len(data)
+            def read(self, size):
+                chunk = self.data[:size]
+                del self.data[:size]
+                return bytes(chunk)
+
+        downloader = _probe_monitor(MonitorSerial(), timeout=0.01)
+        self.assertIsNotNone(downloader)
+        self.assertEqual(downloader.sequence, 1)
 
 
 if __name__ == "__main__":

@@ -225,11 +225,31 @@ class Assembler:
         sections = {section: SectionState(section) for section in SECTION_ORDER}
         self._layout(lines, sections)
         self._emit(lines, sections)
-        segments = []
+        # The v1 monitor receives the complete container at APP_START and then
+        # expands it in place.  Emit one load segment so the container payload
+        # can always be moved downward with memmove semantics without one
+        # section overwriting another section's still-unmoved payload.  BSS
+        # remains compact: it extends memory_size but is not appended to data.
+        populated = [sections[name] for name in SECTION_ORDER if sections[name].memory_size]
+        image_start = min(state.base for state in populated)
+        memory_end = max(state.base + state.memory_size for state in populated)
+        file_states = [state for state in populated if state.data]
+        file_end = max(state.base + len(state.data) for state in file_states)
+        image_data = bytearray(file_end - image_start)
+        image_flags = 0
         for section in SECTION_ORDER:
             state = sections[section]
-            if state.memory_size:
-                segments.append(Segment(state.base, bytes(state.data), state.memory_size, SECTION_FLAGS[section]))
+            if not state.memory_size:
+                continue
+            image_flags |= SECTION_FLAGS[section]
+            offset = state.base - image_start
+            image_data[offset:offset + len(state.data)] = state.data
+        segments = [Segment(
+            image_start,
+            bytes(image_data),
+            memory_end - image_start,
+            image_flags,
+        )]
         entry_value = self._value(str(entry), lines[0] if lines else None) if isinstance(entry, str) else entry
         end_value = self._value(str(end_pc), lines[0] if lines else None) if isinstance(end_pc, str) else end_pc
         image = Image(name, image_type, entry_value, segments, end_pc=end_value)

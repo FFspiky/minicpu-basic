@@ -59,8 +59,15 @@ foreach ($group in ($pinByPort.GetEnumerator() | Group-Object Value | Where-Obje
 if ((Get-Content -Raw -LiteralPath $XdcFiles[0]) -match 'CLOCK_DEDICATED_ROUTE\s+BACKBONE') {
     $failures.Add('CLOCK_DEDICATED_ROUTE BACKBONE would reinsert a BUFG ahead of the ZHOLD PLL')
 }
-if ($ports.Contains('nand_wp_n')) {
-    $failures.Add('nand_wp_n must not be a top-level port; NAND WP# is pulled up on the board')
+$socXdc = Get-Content -Raw -LiteralPath $XdcFiles[0]
+if ($socXdc -match '(?m)^\s*if\s*\{') {
+    $failures.Add('Vivado 2019.2 does not support Tcl if commands inside XDC files')
+}
+if ($socXdc -notmatch 'create_generated_clock\s+-name\s+lcd_core_clk') {
+    $failures.Add('lcd_core_clk generated-clock constraint is missing')
+}
+if (-not $ports.Contains('nand_wp_n')) {
+    $failures.Add('nand_wp_n top-level port is required for NAND erase/program support')
 }
 
 if ($failures.Count) {

@@ -21,10 +21,13 @@ module vga_scoreboard_renderer(
     reg [15:0] glyph_color;
     reg [4:0]  glyph_bits;
     reg [19:0] selected_score;
-    integer    char_index;
-    integer    row_index;
-    integer    rel_x;
-    integer    rel_y;
+    // These values are screen coordinates, never host-sized integers.  The
+    // former 32-bit signed arithmetic turned division by 18/31/36 into long
+    // carry chains (51 logic levels on the pixel path).
+    reg [3:0]  char_index;
+    reg [3:0]  row_index;
+    reg [8:0]  rel_x;
+    reg [8:0]  rel_y;
 
     function [7:0] digit_char;
         input [3:0] digit;
@@ -111,10 +114,10 @@ module vga_scoreboard_renderer(
         glyph_row = 3'd0;
         glyph_color = C_WHITE;
         selected_score = 20'd0;
-        char_index = 0;
-        row_index = 0;
-        rel_x = 0;
-        rel_y = 0;
+        char_index = 4'd0;
+        row_index = 4'd0;
+        rel_x = 9'd0;
+        rel_y = 9'd0;
 
         // SCORE: 5 characters, scale 3, 18-pixel cells.
         if (x >= 9'd99 && x < 9'd189 && y >= 9'd34 && y < 9'd55) begin

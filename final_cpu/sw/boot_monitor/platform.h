@@ -9,6 +9,7 @@ typedef unsigned int u32;
 #define UART_DATA       0xbfafff10u
 #define UART_STATUS     0xbfafff14u
 #define UART_CTRL       0xbfafff18u
+#define TIMER_COUNTER   0xbfafe000u
 #define SYSTEM_MODE     0xbfafff50u
 #define DYNAMIC_END_PC  0xbfafff54u
 #define ACTIVE_SLOT     0xbfafff58u
@@ -36,18 +37,58 @@ typedef unsigned int u32;
 #define KEY_ENTER       0x0800u
 #define KEY_DOWN        0x4000u
 
+#define UART_RX_VALID   (1u << 0)
+#define UART_TX_READY   (1u << 8)
+#define UART_TX_BUSY    (1u << 9)
+#define UART_FRAME_ERR  (1u << 10)
+#define UART_RX_OVERRUN (1u << 1)
+#define UART_RX_ENABLE  (1u << 0)
+#define UART_TX_ENABLE  (1u << 1)
+#define UART_CLEAR_RX   (1u << 8)
+#define UART_BYTE_TIMEOUT_TICKS 500000u /* 5 ms at the 100 MHz timer clock */
+
 static inline void uart_putc(u8 value)
 {
-    while (!(MMIO32(UART_STATUS) & (1u << 8))) {}
+    /*
+     * CONFREG returns MMIO reads through a registered data path.  Merely
+     * polling TX_READY before the store lets the following call observe one
+     * stale READY sample and write while uart_tx is already busy; uart_tx
+     * intentionally ignores such writes.  Confirm both edges of BUSY before
+     * returning so every byte has been accepted and fully shifted out.
+     */
+    while (!(MMIO32(UART_STATUS) & UART_TX_READY)) {}
     MMIO32(UART_DATA) = value;
+    while (!(MMIO32(UART_STATUS) & UART_TX_BUSY)) {}
+    while (MMIO32(UART_STATUS) & UART_TX_BUSY) {}
 }
 
 static inline u8 uart_getc(void)
 {
-    while (!(MMIO32(UART_STATUS) & 1u)) {}
+    while (!(MMIO32(UART_STATUS) & UART_RX_VALID)) {}
     return (u8)MMIO32(UART_DATA);
 }
 
-static inline int uart_available(void) { return (MMIO32(UART_STATUS) & 1u) != 0; }
+static inline int uart_getc_timeout(u8 *value, u32 timeout_ticks)
+{
+    u32 start = MMIO32(TIMER_COUNTER);
+    while (!(MMIO32(UART_STATUS) & UART_RX_VALID))
+        if ((u32)(MMIO32(TIMER_COUNTER) - start) >= timeout_ticks)
+            return -1;
+    *value = (u8)MMIO32(UART_DATA);
+    return 0;
+}
+
+static inline void uart_clear_receive_errors(void)
+{
+    MMIO32(UART_STATUS) = UART_FRAME_ERR | UART_RX_OVERRUN;
+}
+
+static inline void uart_reset_receiver(void)
+{
+    MMIO32(UART_CTRL) = UART_CLEAR_RX | UART_TX_ENABLE | UART_RX_ENABLE;
+    uart_clear_receive_errors();
+}
+
+static inline int uart_available(void) { return (MMIO32(UART_STATUS) & UART_RX_VALID) != 0; }
 
 #endif

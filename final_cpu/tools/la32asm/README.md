@@ -19,6 +19,8 @@ cd D:\CPU_DESIGN\final_cpu\tools\la32asm
 
 浏览器默认打开`http://127.0.0.1:8765`。页面支持：
 
+Studio默认不发送250 ms的`0x55`字节洪流：UART使用固定分频而非自动波特率，训练字节不会校准硬件，反而可能在Boot Monitor扫描NAND期间填满16字节RX FIFO。仅在诊断时可设置环境变量`LA32_UART_SYNC_BYTES`显式启用前导字节。
+
 - 编辑和构建简单freestanding C；
 - 同时查看C源码、GCC生成的LA32R汇编和自研机器码listing；
 - 经UART临时下载到RAM、运行并显示开发板真实输出；
@@ -58,6 +60,20 @@ la32asm studio
 $env:PYTHONPATH='D:\CPU_DESIGN\final_cpu\tools\la32asm'
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
+
+## 生成U盘便携版
+
+在开发电脑上执行：
+
+```powershell
+cd D:\CPU_DESIGN\final_cpu\tools\la32asm
+.\make_portable.ps1 -Destination D:\CPU_DESIGN\LA32-Studio-Portable
+```
+
+将生成的整个目录复制到U盘或其他电脑，双击根目录的
+`LA32-Studio.cmd`即可启动。便携包自带Python和网页依赖，也会携带压缩后的
+LA32R GCC；C语言编译仍要求目标Windows已启用WSL。详细说明见便携包中的
+`PORTABLE_README.md`。
 
 当前测试覆盖核心编码、标签与伪指令、立即数报错、EXP16兼容、跨GCC文件局部符号隔离、LA32IMG CRC、串口帧和赛车GNU机器码差分。
 
