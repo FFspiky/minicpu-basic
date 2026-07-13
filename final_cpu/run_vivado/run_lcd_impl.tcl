@@ -143,6 +143,13 @@ proc run_is_complete_for {run_name target_step} {
     if {[run_refresh_state $run_name] eq "1"} {
         return 0
     }
+    # Vivado 2019.2 does not expose per-step STATUS properties on project
+    # runs.  Successful implementation steps do leave an authoritative end
+    # marker in the run directory even after CURRENT_STEP advances.
+    set step_marker [file join [get_property DIRECTORY $run_object] ".${target_step}.end.rst"]
+    if {[file exists $step_marker]} {
+        return 1
+    }
     set step_property "STEPS.[string toupper $target_step].STATUS"
     if {[lsearch -exact [list_property $run_object] $step_property] >= 0} {
         set step_status [string tolower [get_property $step_property $run_object]]
@@ -184,7 +191,14 @@ proc write_stage_reports {script_dir stage} {
             -file [file join $report_dir high_fanout_synth.rpt]
         report_drc -file [file join $report_dir drc_synth.rpt]
     } else {
-        open_run impl_1
+        set impl_run_dir [get_property DIRECTORY [get_runs impl_1]]
+        set top_name [get_property TOP [get_filesets sources_1]]
+        set checkpoint_suffix [expr {$stage eq "place" ? "placed" : "routed"}]
+        set stage_checkpoint [file join $impl_run_dir ${top_name}_${checkpoint_suffix}.dcp]
+        if {![file exists $stage_checkpoint]} {
+            error "$stage checkpoint is missing: $stage_checkpoint"
+        }
+        open_checkpoint $stage_checkpoint
         report_utilization -hierarchical -file [file join $report_dir utilization_${stage}.rpt]
         report_drc -file [file join $report_dir drc_${stage}.rpt]
         report_timing_summary -delay_type min_max -report_unconstrained \
@@ -207,7 +221,10 @@ proc write_stage_reports {script_dir stage} {
         set wns [get_property SLACK [lindex $setup_path 0]]
         set whs [get_property SLACK [lindex $hold_path 0]]
         puts "TIMING_GATE: stage=$stage WNS=$wns WHS=$whs"
-        if {$wns < 0.0 || $whs < 0.0} {
+        # Hold fixing is a routing task.  A placed-only checkpoint can have
+        # negative hold slack even when implementation is healthy; keep the
+        # setup gate at placement and require both setup and hold after route.
+        if {$wns < 0.0 || ($stage eq "route" && $whs < 0.0)} {
             error "$stage timing gate failed: WNS=$wns WHS=$whs"
         }
     }
