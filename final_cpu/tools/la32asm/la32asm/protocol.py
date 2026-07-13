@@ -164,11 +164,17 @@ class Downloader:
         # the sub-second per-frame timeout used by ordinary UART traffic.
         if progress:
             progress("commit", total_frames, total_frames, len(image), len(image))
+        # Programming cost grows with page count.  Small images should retry a
+        # lost DONE promptly, while the largest supported images still get a
+        # bounded window for synchronous program/readback.  END is idempotent
+        # in the monitor, so same-sequence retransmission cannot install twice.
+        page_count = (len(image) + 2047) // 2048
+        commit_timeout = max(5.0, 2.0 + page_count * 0.15)
         self.request(
             FrameType.END,
             struct.pack("<I", zlib.crc32(image) & 0xFFFFFFFF),
-            timeout=120.0,
-            retries=2,
+            timeout=commit_timeout,
+            retries=self.retries,
         )
         if progress:
             progress("done", total_frames, total_frames, len(image), len(image))

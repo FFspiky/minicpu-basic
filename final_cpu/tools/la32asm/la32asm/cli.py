@@ -12,6 +12,8 @@ from .assembler import Assembler, AssemblyError
 from .image import Image, ImageType
 from .protocol import Downloader, FrameType
 
+DEFAULT_RETRIES = 20
+
 
 def _type(value: str) -> ImageType:
     try:
@@ -50,10 +52,12 @@ def _connect_board(port, args) -> Downloader:
     # The board UART can require one same-sequence retransmission when waking
     # from the menu polling loop.  Use two attempts before deciding that an
     # application is running and BREAK is actually required.
-    probe = Downloader(port, retries=2, timeout=probe_timeout)
+    probe_attempts = max(2, args.retries)
+    probe = Downloader(port, retries=probe_attempts, timeout=probe_timeout)
     try:
         probe.request(
-            FrameType.VERIFY, b"\xff", timeout=probe_timeout, retries=2
+            FrameType.VERIFY, b"\xff", timeout=probe_timeout,
+            retries=probe_attempts,
         )
     except RuntimeError:
         return downloader
@@ -250,7 +254,7 @@ def make_parser() -> argparse.ArgumentParser:
         command.add_argument("--port", required=True)
         command.add_argument("--baud", type=int, default=115200)
         command.add_argument("--timeout", type=float, default=0.5)
-        command.add_argument("--retries", type=int, default=5)
+        command.add_argument("--retries", type=int, default=DEFAULT_RETRIES)
         command.add_argument("--no-reset", action="store_true")
         if name == "install": command.add_argument("--slot", type=int, choices=range(16), required=True)
         command.set_defaults(func=lambda args, op=operation: command_transfer(args, op))
@@ -262,7 +266,7 @@ def make_parser() -> argparse.ArgumentParser:
         command.add_argument("--port", required=True)
         command.add_argument("--baud", type=int, default=115200)
         command.add_argument("--timeout", type=float, default=0.5)
-        command.add_argument("--retries", type=int, default=5)
+        command.add_argument("--retries", type=int, default=DEFAULT_RETRIES)
         command.add_argument("--no-reset", action="store_true")
         if name in ("remove", "verify"):
             command.add_argument("--slot", type=int, choices=range(16), required=True)

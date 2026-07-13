@@ -26,7 +26,7 @@ COMPILER = os.environ.get(
     "LA32_GCC", "/opt/loongarch32r/bin/loongarch32r-linux-gnusf-gcc"
 )
 MONITOR_READY_TIMEOUT = 180.0
-TRANSFER_RETRIES = 5
+TRANSFER_RETRIES = 20
 TRANSFER_TIMEOUT = 0.75
 # The UART uses a fixed divisor rather than auto-baud, so a long 0x55 train
 # provides no calibration benefit.  More importantly, it can fill the 16-byte
