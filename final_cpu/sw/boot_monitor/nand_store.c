@@ -11,6 +11,7 @@
 #define NAND_OP_ERASE_BLOCK 5
 
 static u8 bad_blocks[NAND_BLOCKS/8];
+static u8 checked_blocks[NAND_BLOCKS/8];
 static struct program_directory directory;
 static u16 directory_blocks[2];
 static u8 page[NAND_PAGE_TOTAL];
@@ -125,27 +126,24 @@ static int commit_directory(void)
     directory=next;return 0;
 }
 
-static void scan_bad_blocks(void)
+static int factory_bad(u32 block)
 {
-    u32 block;u8 marker[4];int result;fill(bad_blocks,0,sizeof(bad_blocks));
-    for(block=0;block<NAND_BLOCKS;block++) {
-        result=raw_read(block*64,2048,marker,1);
-        if(result) {
-            if(!diagnostics.scan_read_errors)diagnostics.first_scan_error_block=block;
-            diagnostics.scan_read_errors++;mark_bad(block);continue;
-        }
-        if(marker[0]!=0xff){mark_bad(block);continue;}
-        result=raw_read(block*64+1,2048,marker,1);
-        if(result) {
-            if(!diagnostics.scan_read_errors)diagnostics.first_scan_error_block=block;
-            diagnostics.scan_read_errors++;mark_bad(block);continue;
-        }
-        if(marker[0]!=0xff)mark_bad(block);
+    u8 marker[4];int result;
+    if(block>=NAND_BLOCKS||bad(block))return 1;
+    if((checked_blocks[block>>3]>>(block&7))&1)return 0;
+    checked_blocks[block>>3]|=(u8)(1u<<(block&7));
+    result=raw_read(block*64,2048,marker,1);
+    if(!result&&marker[0]==0xff)result=raw_read(block*64+1,2048,marker,1);
+    if(result) {
+        if(!diagnostics.scan_read_errors)diagnostics.first_scan_error_block=block;
+        diagnostics.scan_read_errors++;mark_bad(block);return 1;
     }
+    if(marker[0]!=0xff){mark_bad(block);return 1;}
+    return 0;
 }
 static int choose_directory_blocks(void)
 {
-    u32 block,n=0;for(block=0;block<NAND_BLOCKS&&n<2;block++)if(!bad(block))directory_blocks[n++]=(u16)block;
+    u32 block,n=0;for(block=0;block<NAND_BLOCKS&&n<2;block++)if(!factory_bad(block))directory_blocks[n++]=(u16)block;
     return n==2?0:-1;
 }
 
@@ -162,7 +160,7 @@ const struct nand_directory_scan *nand_scan_directories(u32 start_block,u32 bloc
     if(end_block>NAND_BLOCKS)end_block=NAND_BLOCKS;
     directory_scan.start_block=start_block;
     for(block=start_block;block<end_block;block++) {
-        if(bad(block))continue;
+        if(factory_bad(block))continue;
         directory_scan.scanned_blocks++;
         result=read_directory_block(block,&candidate);
         if(result==0) {
@@ -194,8 +192,9 @@ int nand_store_init(void)
     if(controller_wait()){diagnostics.init_result=(u32)-2;return -2;}
     diagnostics.nand_id0=MMIO32(NAND_ID0);diagnostics.nand_id1=MMIO32(NAND_ID1);
     if((diagnostics.nand_id0&0xffffu)!=0xf1ecu){diagnostics.init_result=(u32)-3;return -3;}
-    scan_bad_blocks();diagnostics.bad_block_count=nand_bad_block_count();
+    fill(bad_blocks,0,sizeof(bad_blocks));fill(checked_blocks,0,sizeof(checked_blocks));
     if(choose_directory_blocks()){diagnostics.init_result=(u32)-4;return -4;}
+    diagnostics.bad_block_count=nand_bad_block_count();
     diagnostics.directory_block0=directory_blocks[0];diagnostics.directory_block1=directory_blocks[1];
     va=read_directory_block(directory_blocks[0],&a);vb=read_directory_block(directory_blocks[1],&b);
     diagnostics.directory_result0=(u32)va;diagnostics.directory_result1=(u32)vb;
@@ -225,7 +224,7 @@ static int block_in_use(u32 block,int ignore_slot)
 static int allocate_blocks(u16 *out,u32 count)
 {
     u32 block,n=0;for(block=0;block<NAND_BLOCKS&&n<count;block++)
-        if(!bad(block)&&!block_in_use(block,-1))out[n++]=(u16)block;
+        if(!factory_bad(block)&&!block_in_use(block,-1))out[n++]=(u16)block;
     return n==count?0:-1;
 }
 
