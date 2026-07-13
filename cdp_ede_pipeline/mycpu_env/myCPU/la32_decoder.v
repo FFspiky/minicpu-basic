@@ -1,241 +1,197 @@
 `timescale 1ns / 1ps
+`include "la32_defs.vh"
 
 module la32_decoder(
     input  wire [31:0] inst,
     input  wire        valid,
-    input  wire        exception,
-
-    output wire [ 4:0] rd,
-    output wire [ 4:0] rj,
-    output wire [ 4:0] rk,
-    output wire [11:0] imm12,
+    input  wire        if_exc_valid,
+    input  wire [ 5:0] if_ecode,
+    input  wire [ 8:0] if_esubcode,
+    input  wire [31:0] if_badv,
+    output wire [ 4:0] src1,
+    output wire [ 4:0] src2,
+    output wire        src1_used,
+    output wire        src2_used,
+    output wire [ 4:0] dest,
+    output wire [25:0] imm,
+    output reg  [ 2:0] EXTOP,
+    output reg  [ 4:0] alu_op,
+    output reg  [ 1:0] src1_sel,
+    output reg         src2_sel,
+    output reg  [ 3:0] br_op,
+    output reg  [ 3:0] mem_op,
+    output reg  [ 2:0] wb_sel,
+    output reg  [ 1:0] csr_op,
+    output reg  [ 1:0] counter_sel,
     output wire [13:0] csr_num,
-    output wire [ 4:0] cacop_code,
-    output wire [ 4:0] invtlb_op,
-
-    output wire inst_add_w,
-    output wire inst_sub_w,
-    output wire inst_slt,
-    output wire inst_sltu,
-    output wire inst_nor,
-    output wire inst_and,
-    output wire inst_or,
-    output wire inst_xor,
-    output wire inst_sll_w,
-    output wire inst_srl_w,
-    output wire inst_sra_w,
-    output wire inst_mul_w,
-    output wire inst_mulh_w,
-    output wire inst_mulh_wu,
-    output wire inst_div_w,
-    output wire inst_div_wu,
-    output wire inst_mod_w,
-    output wire inst_mod_wu,
-
-    output wire inst_slli_w,
-    output wire inst_srli_w,
-    output wire inst_srai_w,
-    output wire inst_addi_w,
-    output wire inst_slti,
-    output wire inst_sltui,
-    output wire inst_andi,
-    output wire inst_ori,
-    output wire inst_xori,
-    output wire inst_lu12i_w,
-    output wire inst_pcaddu12i,
-
-    output wire inst_ld_b,
-    output wire inst_ld_h,
-    output wire inst_ld_w,
-    output wire inst_ld_bu,
-    output wire inst_ld_hu,
-    output wire inst_st_b,
-    output wire inst_st_h,
-    output wire inst_st_w,
-
-    output wire inst_beq,
-    output wire inst_bne,
-    output wire inst_blt,
-    output wire inst_bge,
-    output wire inst_bltu,
-    output wire inst_bgeu,
-    output wire inst_jirl,
-    output wire inst_b,
-    output wire inst_bl,
-
-    output wire inst_csrrd,
-    output wire inst_csrwr,
-    output wire inst_csrxchg,
-    output wire inst_syscall,
-    output wire inst_break,
-    output wire inst_ertn,
-    output wire inst_rdcntvl_w,
-    output wire inst_rdcntvh_w,
-    output wire inst_rdcntid_w,
-    output wire inst_tlbsrch,
-    output wire inst_tlbrd,
-    output wire inst_tlbwr,
-    output wire inst_tlbfill,
-    output wire inst_invtlb,
-    output wire inst_cacop,
-
-    output wire inst_valid,
-    output wire use_rj,
-    output wire use_rk,
-    output wire use_rd,
-    output wire [4:0] dest,
-    output wire is_load,
-    output wire rf_we,
-    output wire serial
+    output wire        rf_we,
+    output wire        is_load,
+    output wire        is_csr,
+    output wire        is_counter,
+    output wire        is_muldiv,
+    output wire        ertn,
+    output wire        inst_valid,
+    output wire        id_exc_valid,
+    output wire [ 5:0] id_ecode,
+    output wire [ 8:0] id_esubcode,
+    output wire [31:0] id_badv
 );
-
-    wire [5:0]  op_31_26 = inst[31:26];
-    wire [3:0]  op_25_22 = inst[25:22];
-    wire [1:0]  op_21_20 = inst[21:20];
-    wire [4:0]  op_19_15 = inst[19:15];
-    wire [10:0] func11   = inst[25:15];
-    wire [9:0]  op_31_22 = inst[31:22];
-    wire [7:0]  op_31_24 = inst[31:24];
+    wire [5:0] op_31_26 = inst[31:26];
+    wire [3:0] op_25_22 = inst[25:22];
+    wire [1:0] op_21_20 = inst[21:20];
+    wire [4:0] op_19_15 = inst[19:15];
+    wire [10:0] func11 = inst[25:15];
+    wire [9:0] op_31_22 = inst[31:22];
+    wire [7:0] op_31_24 = inst[31:24];
     wire [21:0] op_31_10 = inst[31:10];
+    wire [4:0] rd = inst[4:0];
+    wire [4:0] rj = inst[9:5];
+    wire [4:0] rk = inst[14:10];
 
-    assign rd         = inst[4:0];
-    assign rj         = inst[9:5];
-    assign rk         = inst[14:10];
-    assign imm12      = inst[21:10];
-    assign csr_num    = inst[23:10];
-    assign cacop_code = inst[4:0];
-    assign invtlb_op  = inst[4:0];
+    wire i_add   = op_31_26 == 6'b000000 && func11 == 11'h020;
+    wire i_sub   = op_31_26 == 6'b000000 && func11 == 11'h022;
+    wire i_slt   = op_31_26 == 6'b000000 && func11 == 11'h024;
+    wire i_sltu  = op_31_26 == 6'b000000 && func11 == 11'h025;
+    wire i_nor   = op_31_26 == 6'b000000 && func11 == 11'h028;
+    wire i_and   = op_31_26 == 6'b000000 && func11 == 11'h029;
+    wire i_or    = op_31_26 == 6'b000000 && func11 == 11'h02a;
+    wire i_xor   = op_31_26 == 6'b000000 && func11 == 11'h02b;
+    wire i_sll   = op_31_26 == 6'b000000 && func11 == 11'h02e;
+    wire i_srl   = op_31_26 == 6'b000000 && func11 == 11'h02f;
+    wire i_sra   = op_31_26 == 6'b000000 && func11 == 11'h030;
+    wire i_mul   = op_31_26 == 6'b000000 && func11 == 11'h038;
+    wire i_mulh  = op_31_26 == 6'b000000 && func11 == 11'h039;
+    wire i_mulhu = op_31_26 == 6'b000000 && func11 == 11'h03a;
+    wire i_div   = op_31_26 == 6'b000000 && func11 == 11'h040;
+    wire i_mod   = op_31_26 == 6'b000000 && func11 == 11'h041;
+    wire i_divu  = op_31_26 == 6'b000000 && func11 == 11'h042;
+    wire i_modu  = op_31_26 == 6'b000000 && func11 == 11'h043;
+    wire i_slli  = op_31_26 == 6'b000000 && op_25_22 == 4'b0001 &&
+                   op_21_20 == 2'b00 && op_19_15 == 5'b00001;
+    wire i_srli  = op_31_26 == 6'b000000 && op_25_22 == 4'b0001 &&
+                   op_21_20 == 2'b00 && op_19_15 == 5'b01001;
+    wire i_srai  = op_31_26 == 6'b000000 && op_25_22 == 4'b0001 &&
+                   op_21_20 == 2'b00 && op_19_15 == 5'b10001;
+    wire i_addi  = op_31_22 == 10'b0000001010;
+    wire i_slti  = op_31_22 == 10'b0000001000;
+    wire i_sltui = op_31_22 == 10'b0000001001;
+    wire i_andi  = op_31_22 == 10'b0000001101;
+    wire i_ori   = op_31_22 == 10'b0000001110;
+    wire i_xori  = op_31_22 == 10'b0000001111;
+    wire i_lu12  = inst[31:25] == 7'b0001010;
+    wire i_pcaddu = inst[31:25] == 7'b0001110;
 
-    assign inst_add_w   = op_31_26 == 6'b000000 && func11 == 11'h020;
-    assign inst_sub_w   = op_31_26 == 6'b000000 && func11 == 11'h022;
-    assign inst_slt     = op_31_26 == 6'b000000 && func11 == 11'h024;
-    assign inst_sltu    = op_31_26 == 6'b000000 && func11 == 11'h025;
-    assign inst_nor     = op_31_26 == 6'b000000 && func11 == 11'h028;
-    assign inst_and     = op_31_26 == 6'b000000 && func11 == 11'h029;
-    assign inst_or      = op_31_26 == 6'b000000 && func11 == 11'h02a;
-    assign inst_xor     = op_31_26 == 6'b000000 && func11 == 11'h02b;
-    assign inst_sll_w   = op_31_26 == 6'b000000 && func11 == 11'h02e;
-    assign inst_srl_w   = op_31_26 == 6'b000000 && func11 == 11'h02f;
-    assign inst_sra_w   = op_31_26 == 6'b000000 && func11 == 11'h030;
-    assign inst_mul_w   = op_31_26 == 6'b000000 && func11 == 11'h038;
-    assign inst_mulh_w  = op_31_26 == 6'b000000 && func11 == 11'h039;
-    assign inst_mulh_wu = op_31_26 == 6'b000000 && func11 == 11'h03a;
-    assign inst_div_w   = op_31_26 == 6'b000000 && func11 == 11'h040;
-    assign inst_mod_w   = op_31_26 == 6'b000000 && func11 == 11'h041;
-    assign inst_div_wu  = op_31_26 == 6'b000000 && func11 == 11'h042;
-    assign inst_mod_wu  = op_31_26 == 6'b000000 && func11 == 11'h043;
+    wire i_ldb  = op_31_22 == 10'b0010100000;
+    wire i_ldh  = op_31_22 == 10'b0010100001;
+    wire i_ldw  = op_31_22 == 10'b0010100010;
+    wire i_stb  = op_31_22 == 10'b0010100100;
+    wire i_sth  = op_31_22 == 10'b0010100101;
+    wire i_stw  = op_31_22 == 10'b0010100110;
+    wire i_ldbu = op_31_22 == 10'b0010101000;
+    wire i_ldhu = op_31_22 == 10'b0010101001;
 
-    assign inst_slli_w  = op_31_26 == 6'b000000 && op_25_22 == 4'b0001 &&
-                          op_21_20 == 2'b00 && op_19_15 == 5'b00001;
-    assign inst_srli_w  = op_31_26 == 6'b000000 && op_25_22 == 4'b0001 &&
-                          op_21_20 == 2'b00 && op_19_15 == 5'b01001;
-    assign inst_srai_w  = op_31_26 == 6'b000000 && op_25_22 == 4'b0001 &&
-                          op_21_20 == 2'b00 && op_19_15 == 5'b10001;
-    assign inst_addi_w  = op_31_22 == 10'b0000001010;
-    assign inst_slti    = op_31_22 == 10'b0000001000;
-    assign inst_sltui   = op_31_22 == 10'b0000001001;
-    assign inst_andi    = op_31_22 == 10'b0000001101;
-    assign inst_ori     = op_31_22 == 10'b0000001110;
-    assign inst_xori    = op_31_22 == 10'b0000001111;
-    assign inst_lu12i_w = inst[31:25] == 7'b0001010;
-    assign inst_pcaddu12i = inst[31:25] == 7'b0001110;
+    wire i_beq  = op_31_26 == 6'b010110;
+    wire i_bne  = op_31_26 == 6'b010111;
+    wire i_blt  = op_31_26 == 6'b011000;
+    wire i_bge  = op_31_26 == 6'b011001;
+    wire i_bltu = op_31_26 == 6'b011010;
+    wire i_bgeu = op_31_26 == 6'b011011;
+    wire i_jirl = op_31_26 == 6'b010011;
+    wire i_b    = op_31_26 == 6'b010100;
+    wire i_bl   = op_31_26 == 6'b010101;
 
-    assign inst_ld_b  = op_31_22 == 10'b0010100000;
-    assign inst_ld_h  = op_31_22 == 10'b0010100001;
-    assign inst_ld_w  = op_31_22 == 10'b0010100010;
-    assign inst_st_b  = op_31_22 == 10'b0010100100;
-    assign inst_st_h  = op_31_22 == 10'b0010100101;
-    assign inst_st_w  = op_31_22 == 10'b0010100110;
-    assign inst_ld_bu = op_31_22 == 10'b0010101000;
-    assign inst_ld_hu = op_31_22 == 10'b0010101001;
+    wire i_csrrd = op_31_24 == 8'h04 && rj == 5'd0;
+    wire i_csrwr = op_31_24 == 8'h04 && rj == 5'd1;
+    wire i_csrx  = op_31_24 == 8'h04 && rj != 5'd0 && rj != 5'd1;
+    wire i_sys   = inst == 32'h002b0000;
+    wire i_brk   = inst == 32'h002a0000;
+    wire i_ertn  = inst == 32'h06483800;
+    wire i_cntl  = op_31_10 == 22'h000018 && rd != 5'd0;
+    wire i_cntid = op_31_10 == 22'h000018 && rd == 5'd0;
+    wire i_cnth  = op_31_10 == 22'h000019;
 
-    assign inst_beq  = op_31_26 == 6'b010110;
-    assign inst_bne  = op_31_26 == 6'b010111;
-    assign inst_blt  = op_31_26 == 6'b011000;
-    assign inst_bge  = op_31_26 == 6'b011001;
-    assign inst_bltu = op_31_26 == 6'b011010;
-    assign inst_bgeu = op_31_26 == 6'b011011;
-    assign inst_jirl = op_31_26 == 6'b010011;
-    assign inst_b    = op_31_26 == 6'b010100;
-    assign inst_bl   = op_31_26 == 6'b010101;
+    wire reg_rr = i_add | i_sub | i_slt | i_sltu | i_nor | i_and |
+                  i_or | i_xor | i_sll | i_srl | i_sra | i_mul |
+                  i_mulh | i_mulhu | i_div | i_divu | i_mod | i_modu;
+    wire imm_alu = i_slli | i_srli | i_srai | i_addi | i_slti |
+                   i_sltui | i_andi | i_ori | i_xori;
+    wire load = i_ldb | i_ldh | i_ldw | i_ldbu | i_ldhu;
+    wire store = i_stb | i_sth | i_stw;
+    wire cond_br = i_beq | i_bne | i_blt | i_bge | i_bltu | i_bgeu;
 
-    assign inst_csrrd   = op_31_24 == 8'h04 && rj == 5'd0;
-    assign inst_csrwr   = op_31_24 == 8'h04 && rj == 5'd1;
-    assign inst_csrxchg = op_31_24 == 8'h04 && rj != 5'd0 && rj != 5'd1;
-    assign inst_syscall = inst == 32'h002b0000;
-    assign inst_break   = inst == 32'h002a0000;
-    assign inst_ertn    = inst == 32'h06483800;
+    assign inst_valid = reg_rr | imm_alu | i_lu12 | i_pcaddu | load |
+                        store | cond_br | i_jirl | i_b | i_bl |
+                        i_csrrd | i_csrwr | i_csrx | i_sys | i_brk |
+                        i_ertn | i_cntl | i_cnth | i_cntid;
+    assign src1_used = reg_rr | imm_alu | load | store | cond_br |
+                       i_jirl | i_csrx;
+    assign src2_used = reg_rr | store | cond_br | i_csrwr | i_csrx;
+    assign src1 = rj;
+    assign src2 = (store | cond_br | i_csrwr | i_csrx) ? rd : rk;
+    assign dest = i_bl ? 5'd1 : i_cntid ? rj :
+                  (store | cond_br | i_b | i_sys | i_brk | i_ertn) ?
+                  5'd0 : rd;
+    assign imm = inst[25:0];
+    assign csr_num = i_cntid ? 14'h040 : inst[23:10];
+    assign is_load = load;
+    assign is_csr = i_csrrd | i_csrwr | i_csrx;
+    assign is_counter = i_cntl | i_cnth | i_cntid;
+    assign is_muldiv = i_mul | i_mulh | i_mulhu | i_div | i_divu |
+                       i_mod | i_modu;
+    assign ertn = i_ertn;
+    assign rf_we = valid & !if_exc_valid & (reg_rr | imm_alu | i_lu12 |
+                   i_pcaddu | load | is_csr | is_counter | i_bl | i_jirl);
 
-    assign inst_rdcntvl_w = op_31_10 == 22'h000018 && rd != 5'd0;
-    assign inst_rdcntid_w = op_31_10 == 22'h000018 && rd == 5'd0;
-    assign inst_rdcntvh_w = op_31_10 == 22'h000019;
+    wire local_ine = valid & !if_exc_valid & !inst_valid;
+    wire local_sys = valid & !if_exc_valid & i_sys;
+    wire local_brk = valid & !if_exc_valid & i_brk;
+    assign id_exc_valid = if_exc_valid | local_ine | local_sys | local_brk;
+    assign id_ecode = if_exc_valid ? if_ecode : local_sys ? `ECODE_SYS :
+                      local_brk ? `ECODE_BRK : local_ine ? `ECODE_INE : 6'b0;
+    assign id_esubcode = if_exc_valid ? if_esubcode : 9'b0;
+    assign id_badv = if_exc_valid ? if_badv : 32'b0;
 
-    assign inst_tlbsrch = inst == 32'h06482800;
-    assign inst_tlbrd   = inst == 32'h06482c00;
-    assign inst_tlbwr   = inst == 32'h06483000;
-    assign inst_tlbfill = inst == 32'h06483400;
-    assign inst_invtlb  = inst[31:15] == 17'b00000110010010011;
-    assign inst_cacop   = op_31_22 == 10'b0000011000;
+    always @(*) begin
+        alu_op = `ALU_ADD;
+        if (i_sub) alu_op = `ALU_SUB;
+        else if (i_slt | i_slti) alu_op = `ALU_SLT;
+        else if (i_sltu | i_sltui) alu_op = `ALU_SLTU;
+        else if (i_sll | i_slli) alu_op = `ALU_SLL;
+        else if (i_srl | i_srli) alu_op = `ALU_SRL;
+        else if (i_sra | i_srai) alu_op = `ALU_SRA;
+        else if (i_and | i_andi) alu_op = `ALU_AND;
+        else if (i_nor) alu_op = `ALU_NOR;
+        else if (i_or | i_ori) alu_op = `ALU_OR;
+        else if (i_xor | i_xori) alu_op = `ALU_XOR;
+        else if (i_mul) alu_op = `ALU_MUL;
+        else if (i_mulh) alu_op = `ALU_MULH;
+        else if (i_mulhu) alu_op = `ALU_MULHU;
+        else if (i_div) alu_op = `ALU_DIV;
+        else if (i_divu) alu_op = `ALU_DIVU;
+        else if (i_mod) alu_op = `ALU_MOD;
+        else if (i_modu) alu_op = `ALU_MODU;
 
-    assign inst_valid = inst_add_w | inst_sub_w | inst_slt | inst_sltu |
-                        inst_nor | inst_and | inst_or | inst_xor |
-                        inst_sll_w | inst_srl_w | inst_sra_w |
-                        inst_mul_w | inst_mulh_w | inst_mulh_wu |
-                        inst_div_w | inst_div_wu | inst_mod_w | inst_mod_wu |
-                        inst_slli_w | inst_srli_w | inst_srai_w |
-                        inst_addi_w | inst_slti | inst_sltui |
-                        inst_andi | inst_ori | inst_xori |
-                        inst_lu12i_w | inst_pcaddu12i |
-                        inst_ld_b | inst_ld_h | inst_ld_w | inst_ld_bu | inst_ld_hu |
-                        inst_st_b | inst_st_h | inst_st_w |
-                        inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu |
-                        inst_jirl | inst_b | inst_bl |
-                        inst_csrrd | inst_csrwr | inst_csrxchg |
-                        inst_syscall | inst_break | inst_ertn |
-                        inst_rdcntvl_w | inst_rdcntvh_w | inst_rdcntid_w |
-                        inst_tlbsrch | inst_tlbrd | inst_tlbwr | inst_tlbfill |
-                        inst_invtlb | inst_cacop;
+        src1_sel = i_lu12 ? `SRC1_ZERO : i_pcaddu ? `SRC1_PC : `SRC1_REG;
+        src2_sel = (imm_alu | i_lu12 | i_pcaddu | load | store) ?
+                   `SRC2_IMM : `SRC2_REG;
+        EXTOP = (i_andi | i_ori | i_xori) ? `EXTOP_UI12 :
+                (i_slli | i_srli | i_srai) ? `EXTOP_UI5 :
+                (i_lu12 | i_pcaddu) ? `EXTOP_SI20 :
+                (cond_br | i_jirl) ? `EXTOP_OFFS16 :
+                (i_b | i_bl) ? `EXTOP_OFFS26 : `EXTOP_SI12;
 
-    assign use_rj = inst_add_w | inst_sub_w | inst_slt | inst_sltu |
-                    inst_nor | inst_and | inst_or | inst_xor |
-                    inst_sll_w | inst_srl_w | inst_sra_w |
-                    inst_mul_w | inst_mulh_w | inst_mulh_wu |
-                    inst_div_w | inst_div_wu | inst_mod_w | inst_mod_wu |
-                    inst_slli_w | inst_srli_w | inst_srai_w |
-                    inst_addi_w | inst_slti | inst_sltui |
-                    inst_andi | inst_ori | inst_xori |
-                    inst_ld_b | inst_ld_h | inst_ld_w | inst_ld_bu | inst_ld_hu |
-                    inst_st_b | inst_st_h | inst_st_w |
-                    inst_beq | inst_bne | inst_blt | inst_bge |
-                    inst_bltu | inst_bgeu | inst_jirl |
-                    inst_csrxchg | inst_invtlb | inst_cacop;
-    assign use_rk = inst_add_w | inst_sub_w | inst_slt | inst_sltu |
-                    inst_nor | inst_and | inst_or | inst_xor |
-                    inst_sll_w | inst_srl_w | inst_sra_w |
-                    inst_mul_w | inst_mulh_w | inst_mulh_wu |
-                    inst_div_w | inst_div_wu | inst_mod_w | inst_mod_wu |
-                    inst_invtlb;
-    assign use_rd = inst_st_b | inst_st_h | inst_st_w |
-                    inst_beq | inst_bne | inst_blt | inst_bge |
-                    inst_bltu | inst_bgeu | inst_csrwr | inst_csrxchg;
-
-    assign dest = inst_bl ? 5'd1 : inst_rdcntid_w ? rj : rd;
-    assign is_load = inst_ld_b | inst_ld_h | inst_ld_w | inst_ld_bu | inst_ld_hu;
-    assign rf_we = inst_add_w | inst_sub_w | inst_slt | inst_sltu |
-                   inst_nor | inst_and | inst_or | inst_xor |
-                   inst_sll_w | inst_srl_w | inst_sra_w |
-                   inst_mul_w | inst_mulh_w | inst_mulh_wu |
-                   inst_div_w | inst_div_wu | inst_mod_w | inst_mod_wu |
-                   inst_slli_w | inst_srli_w | inst_srai_w |
-                   inst_addi_w | inst_slti | inst_sltui |
-                   inst_andi | inst_ori | inst_xori |
-                   inst_lu12i_w | inst_pcaddu12i |
-                   is_load | inst_csrrd | inst_csrwr | inst_csrxchg |
-                   inst_rdcntvl_w | inst_rdcntvh_w | inst_rdcntid_w |
-                   inst_bl | inst_jirl;
-    assign serial = valid & (exception | !inst_valid | inst_syscall |
-                    inst_break | inst_ertn | inst_csrrd | inst_csrwr |
-                    inst_csrxchg | inst_tlbsrch | inst_tlbrd | inst_tlbwr |
-                    inst_tlbfill | inst_invtlb | inst_cacop);
-
+        br_op = i_beq ? `BR_BEQ : i_bne ? `BR_BNE : i_blt ? `BR_BLT :
+                i_bge ? `BR_BGE : i_bltu ? `BR_BLTU : i_bgeu ? `BR_BGEU :
+                i_b ? `BR_B : i_bl ? `BR_BL : i_jirl ? `BR_JIRL : `BR_NONE;
+        mem_op = i_ldb ? `MEM_LDB : i_ldh ? `MEM_LDH : i_ldw ? `MEM_LDW :
+                 i_ldbu ? `MEM_LDBU : i_ldhu ? `MEM_LDHU :
+                 i_stb ? `MEM_STB : i_sth ? `MEM_STH : i_stw ? `MEM_STW :
+                 `MEM_NONE;
+        csr_op = i_csrrd ? `CSR_READ : i_csrwr ? `CSR_WRITE :
+                 i_csrx ? `CSR_XCHG : `CSR_NONE;
+        counter_sel = i_cnth ? 2'd1 : i_cntid ? 2'd2 : 2'd0;
+        wb_sel = load ? `WB_LOAD : (i_bl | i_jirl) ? `WB_PC4 :
+                 is_csr ? `WB_CSR : i_cntl ? `WB_CNT_LOW :
+                 i_cnth ? `WB_CNT_HIGH : i_cntid ? `WB_TID : `WB_EX;
+    end
 endmodule

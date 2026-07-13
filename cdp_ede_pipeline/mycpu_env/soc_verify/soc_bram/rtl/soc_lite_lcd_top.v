@@ -34,27 +34,9 @@ module soc_lite_lcd_top #(
     output wire        ct_rstn
 );
 
+    // The SoC clock wizard owns the only input buffer. Its 100 MHz timer
+    // output is also the LCD/debug domain clock.
     wire board_clk;
-
-    generate if (SIMULATION)
-    begin: sim_clock
-        assign board_clk = clk;
-    end
-    else
-    begin: board_clock
-        wire clk_ibuf;
-
-        IBUF u_board_clk_ibuf(
-            .I (clk),
-            .O (clk_ibuf)
-        );
-
-        BUFG u_board_clk_bufg(
-            .I (clk_ibuf),
-            .O (board_clk)
-        );
-    end
-    endgenerate
 
     wire [31:0] debug_wb_pc;
     wire [3 :0] debug_wb_rf_we;
@@ -84,7 +66,7 @@ module soc_lite_lcd_top #(
         .END_PC      (END_PC)
     ) u_soc (
         .resetn              (resetn),
-        .clk                 (board_clk),
+        .clk                 (clk),
 
         .led                 (led),
         .led_rg0             (led_rg0),
@@ -117,7 +99,8 @@ module soc_lite_lcd_top #(
         .debug_last_wb_wdata (debug_last_wb_wdata),
         .debug_mode_run      (debug_mode_run),
         .debug_run_active    (debug_run_active),
-        .debug_run_done      (debug_run_done)
+        .debug_run_done      (debug_run_done),
+        .lcd_clk             (board_clk)
     );
 
     reg         display_valid;

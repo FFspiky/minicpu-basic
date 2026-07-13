@@ -105,13 +105,48 @@ set ip_xci_files [glob -nocomplain ../rtl/xilinx_ip/*/*.xci]
 add_new_quiet_files $ip_xci_files
 add_new_design_files [glob -nocomplain ../rtl/xilinx_ip/clk_pll/*.v]
 
-set mycpu_files [list]
-foreach mycpu_file [glob -nocomplain ../../../myCPU/*.v] {
-    if {[file tail $mycpu_file] ne "SimpleLACoreWrapRAM.v"} {
-        lappend mycpu_files $mycpu_file
+# Add only the active EXP16 pipeline RTL.  Legacy teaching/reference modules
+# remain on disk but are intentionally excluded from the Vivado source set.
+set mycpu_files [list \
+    ../../../myCPU/mycpu_top.v \
+    ../../../myCPU/mycpu_pipeline.v \
+    ../../../myCPU/la32_pipeline_core.v \
+    ../../../myCPU/la32_pc.v \
+    ../../../myCPU/la32_fetch_unit.v \
+    ../../../myCPU/la32_if_id_reg.v \
+    ../../../myCPU/la32_decoder.v \
+    ../../../myCPU/la32_imm_gen.v \
+    ../../../myCPU/regfile.v \
+    ../../../myCPU/la32_id_ex_reg.v \
+    ../../../myCPU/la32_exu.v \
+    ../../../myCPU/la32_muldiv.v \
+    ../../../myCPU/la32_branch.v \
+    ../../../myCPU/la32_ex_mem_reg.v \
+    ../../../myCPU/la32_lsu.v \
+    ../../../myCPU/la32_mem_wb_reg.v \
+    ../../../myCPU/la32_stable_counter.v \
+    ../../../myCPU/la32_exception_control.v \
+    ../../../myCPU/la32_csr.v \
+    ../../../myCPU/la32_wb_select.v \
+    ../../../myCPU/la32_pipeline_control.v \
+    ../../../myCPU/la32_defs.vh \
+]
+
+set normalized_mycpu_files [list]
+foreach mycpu_file $mycpu_files {
+    lappend normalized_mycpu_files [file normalize $mycpu_file]
+}
+
+# An existing XPR may still contain sources added by an older wildcard-based
+# script. Remove every non-whitelisted myCPU source before adding active RTL.
+set mycpu_dir [file normalize ../../../myCPU]
+foreach source_file [get_files -quiet -of_objects [get_filesets sources_1]] {
+    set source_path [file normalize [get_property NAME $source_file]]
+    if {[file dirname $source_path] eq $mycpu_dir &&
+        [lsearch -exact $normalized_mycpu_files $source_path] < 0} {
+        remove_files -fileset sources_1 $source_file
     }
 }
-remove_design_file_if_present ../../../myCPU/SimpleLACoreWrapRAM.v
 add_new_design_files $mycpu_files
 
 set board_sim_files [glob -nocomplain ./sim/*.v]
