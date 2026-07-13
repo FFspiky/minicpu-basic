@@ -27,6 +27,7 @@ class FrameType(IntEnum):
     VERIFY = 11
     RUN_TEMPORARY = 12
     FORMAT = 13
+    DIAGNOSTICS = 14
 
 
 @dataclass(frozen=True)

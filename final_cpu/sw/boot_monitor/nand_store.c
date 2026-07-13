@@ -14,6 +14,7 @@ static u8 bad_blocks[NAND_BLOCKS/8];
 static struct program_directory directory;
 static u16 directory_blocks[2];
 static u8 page[NAND_PAGE_TOTAL];
+static struct nand_store_diagnostics diagnostics;
 
 static void copy(void *d,const void *s,u32 n){u8 *x=d;const u8 *y=s;while(n--)*x++=*y++;}
 static void fill(void *d,u8 v,u32 n){u8 *x=d;while(n--)*x++=v;}
@@ -96,9 +97,13 @@ static u32 directory_crc(const struct program_directory *d)
 {return crc32_update(0,d,sizeof(*d)-sizeof(d->crc));}
 static int read_directory_block(u32 block,struct program_directory *out)
 {
-    if(read_data_page(block*NAND_PAGES_PER_BLOCK,page))return -1;
+    int result;
+    if(raw_read(block*NAND_PAGES_PER_BLOCK,0,page,NAND_PAGE_TOTAL))return -1;
+    result=check_ecc(page);
+    if(result<0)return result-1; /* -2 page magic, -3 ECC, -4 page CRC */
     copy(out,page,sizeof(*out));
-    return out->magic==DIR_MAGIC&&out->crc==directory_crc(out)?0:-2;
+    if(out->magic!=DIR_MAGIC)return -5;
+    return out->crc==directory_crc(out)?0:-6;
 }
 static int write_directory_block(u32 block,const struct program_directory *d)
 {
@@ -116,10 +121,20 @@ static int commit_directory(void)
 
 static void scan_bad_blocks(void)
 {
-    u32 block;u8 marker[4];fill(bad_blocks,0,sizeof(bad_blocks));
+    u32 block;u8 marker[4];int result;fill(bad_blocks,0,sizeof(bad_blocks));
     for(block=0;block<NAND_BLOCKS;block++) {
-        if(raw_read(block*64,2048,marker,1)||marker[0]!=0xff){mark_bad(block);continue;}
-        if(raw_read(block*64+1,2048,marker,1)||marker[0]!=0xff)mark_bad(block);
+        result=raw_read(block*64,2048,marker,1);
+        if(result) {
+            if(!diagnostics.scan_read_errors)diagnostics.first_scan_error_block=block;
+            diagnostics.scan_read_errors++;mark_bad(block);continue;
+        }
+        if(marker[0]!=0xff){mark_bad(block);continue;}
+        result=raw_read(block*64+1,2048,marker,1);
+        if(result) {
+            if(!diagnostics.scan_read_errors)diagnostics.first_scan_error_block=block;
+            diagnostics.scan_read_errors++;mark_bad(block);continue;
+        }
+        if(marker[0]!=0xff)mark_bad(block);
     }
 }
 static int choose_directory_blocks(void)
@@ -129,17 +144,29 @@ static int choose_directory_blocks(void)
 }
 
 const struct program_directory *nand_directory(void){return &directory;}
+const struct nand_store_diagnostics *nand_diagnostics(void){return &diagnostics;}
 int nand_store_init(void)
 {
     struct program_directory a,b;int va,vb;
-    MMIO32(NAND_CMD)=NAND_OP_RESET;if(controller_wait())return -1;
-    MMIO32(NAND_CMD)=NAND_OP_READ_ID;if(controller_wait())return -2;
-    if((MMIO32(NAND_ID0)&0xffffu)!=0xf1ecu)return -3;
-    scan_bad_blocks();if(choose_directory_blocks())return -4;
+    fill(&diagnostics,0,sizeof(diagnostics));diagnostics.version=1;
+    diagnostics.first_scan_error_block=0xffffffffu;
+    MMIO32(NAND_CMD)=NAND_OP_RESET;
+    if(controller_wait()){diagnostics.init_result=(u32)-1;return -1;}
+    MMIO32(NAND_CMD)=NAND_OP_READ_ID;
+    if(controller_wait()){diagnostics.init_result=(u32)-2;return -2;}
+    diagnostics.nand_id0=MMIO32(NAND_ID0);diagnostics.nand_id1=MMIO32(NAND_ID1);
+    if((diagnostics.nand_id0&0xffffu)!=0xf1ecu){diagnostics.init_result=(u32)-3;return -3;}
+    scan_bad_blocks();diagnostics.bad_block_count=nand_bad_block_count();
+    if(choose_directory_blocks()){diagnostics.init_result=(u32)-4;return -4;}
+    diagnostics.directory_block0=directory_blocks[0];diagnostics.directory_block1=directory_blocks[1];
     va=read_directory_block(directory_blocks[0],&a);vb=read_directory_block(directory_blocks[1],&b);
-    if(va&&vb){fill(&directory,0,sizeof(directory));return 1;}
+    diagnostics.directory_result0=(u32)va;diagnostics.directory_result1=(u32)vb;
+    if(va&&vb){fill(&directory,0,sizeof(directory));diagnostics.init_result=1;return 1;}
     directory=(!va&&(vb||a.generation>=b.generation))?a:b;
     {u32 i;for(i=0;i<sizeof(bad_blocks);i++)bad_blocks[i]|=directory.runtime_bad[i];}
+    diagnostics.selected_generation=directory.generation;
+    diagnostics.selected_valid_mask=directory.valid_mask;
+    diagnostics.init_result=0;
     return 0;
 }
 int nand_store_format(void)

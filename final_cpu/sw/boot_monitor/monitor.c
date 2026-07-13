@@ -17,6 +17,7 @@
 #define FT_VERIFY 11
 #define FT_RUN_TEMP 12
 #define FT_FORMAT 13
+#define FT_DIAGNOSTICS 14
 
 struct frame { u8 type; u16 sequence,length; u8 payload[520]; };
 static u32 expected_size,receive_operation,receive_slot;
@@ -112,6 +113,11 @@ static void handle_frame(struct frame *f)
         case FT_LIST:
         {
             const struct program_directory *d=nand_directory();
+            send_frame(FT_DONE,f->sequence,(const u8 *)d,sizeof(*d));break;
+        }
+        case FT_DIAGNOSTICS:
+        {
+            const struct nand_store_diagnostics *d=nand_diagnostics();
             send_frame(FT_DONE,f->sequence,(const u8 *)d,sizeof(*d));break;
         }
         default:reply(FT_NACK,f->sequence,0xff);break;

@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import shlex
+import struct
 import subprocess
 import sys
 
@@ -138,6 +139,24 @@ def command_board(args, operation: FrameType) -> int:
     if operation == FrameType.LIST:
         Path(args.output).write_bytes(response.payload)
         print(f"saved board directory to {args.output}")
+    elif operation == FrameType.DIAGNOSTICS:
+        layout = struct.Struct("<13I")
+        if len(response.payload) != layout.size:
+            raise RuntimeError(f"unexpected diagnostics size: {len(response.payload)}")
+        values = layout.unpack(response.payload)
+        signed = lambda value: value if value < 0x80000000 else value - 0x100000000
+        names = (
+            "version", "nand_id0", "nand_id1", "scan_read_errors",
+            "first_scan_error_block", "bad_block_count", "directory_block0",
+            "directory_block1", "directory_result0", "directory_result1",
+            "selected_generation", "selected_valid_mask", "init_result",
+        )
+        result = dict(zip(names, values))
+        for name in ("directory_result0", "directory_result1", "init_result"):
+            result[name] = signed(result[name])
+        for name in ("nand_id0", "nand_id1", "selected_valid_mask"):
+            result[name] = f"0x{result[name]:08x}"
+        print(json.dumps(result, indent=2))
     else:
         print("board command complete")
     return 0
@@ -178,7 +197,8 @@ def make_parser() -> argparse.ArgumentParser:
         if name == "install": command.add_argument("--slot", type=int, choices=range(16), required=True)
         command.set_defaults(func=lambda args, op=operation: command_transfer(args, op))
     for name, operation in (("list", FrameType.LIST), ("remove", FrameType.REMOVE),
-                            ("verify", FrameType.VERIFY), ("format", FrameType.FORMAT)):
+                            ("verify", FrameType.VERIFY), ("format", FrameType.FORMAT),
+                            ("diag", FrameType.DIAGNOSTICS)):
         command = sub.add_parser(name)
         command.add_argument("--port", required=True)
         command.add_argument("--baud", type=int, default=115200)
