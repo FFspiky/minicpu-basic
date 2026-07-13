@@ -144,10 +144,17 @@ proc run_is_complete_for {run_name target_step} {
         return 0
     }
     set step_property "STEPS.[string toupper $target_step].STATUS"
-    if {[lsearch -exact [list_property $run_object] $step_property] < 0} {
-        return 0
+    if {[lsearch -exact [list_property $run_object] $step_property] >= 0} {
+        set step_status [string tolower [get_property $step_property $run_object]]
+        if {[string match "complete*" $step_status]} {
+            return 1
+        }
     }
-    return [expr {[get_property $step_property $run_object] eq "Complete"}]
+    # Vivado 2019.2 may leave the per-step STATUS property empty even though
+    # the run-level status has already advanced to "<step> Complete!".
+    # Accept that canonical run status as the fallback so a successful run is
+    # not aborted before reports or the next implementation stage.
+    return [expr {[string first "$target_step Complete!" [run_status $run_name]] >= 0}]
 }
 
 proc launch_to_step {run_name target_step jobs} {
