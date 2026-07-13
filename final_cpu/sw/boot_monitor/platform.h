@@ -47,6 +47,12 @@ typedef unsigned int u32;
 #define UART_CLEAR_RX   (1u << 8)
 #define UART_BYTE_TIMEOUT_TICKS 500000u /* 5 ms at the 100 MHz timer clock */
 
+static inline u32 uart_status_stable(void)
+{
+    (void)MMIO32(UART_STATUS);
+    return MMIO32(UART_STATUS);
+}
+
 static inline void uart_putc(u8 value)
 {
     /*
@@ -56,10 +62,10 @@ static inline void uart_putc(u8 value)
      * intentionally ignores such writes.  Confirm both edges of BUSY before
      * returning so every byte has been accepted and fully shifted out.
      */
-    while (!(MMIO32(UART_STATUS) & UART_TX_READY)) {}
+    while ((uart_status_stable() & (UART_TX_READY | UART_TX_BUSY)) != UART_TX_READY) {}
     MMIO32(UART_DATA) = value;
-    while (!(MMIO32(UART_STATUS) & UART_TX_BUSY)) {}
-    while (MMIO32(UART_STATUS) & UART_TX_BUSY) {}
+    while (!(uart_status_stable() & UART_TX_BUSY)) {}
+    while (uart_status_stable() & UART_TX_BUSY) {}
 }
 
 static inline u8 uart_getc(void)
@@ -94,8 +100,7 @@ static inline int uart_available(void)
     /* CONFREG MMIO reads return through a registered path.  A single status
        read can therefore retain RX_VALID from the byte just popped, causing
        the monitor to enter an empty receive and clear the following frame. */
-    (void)MMIO32(UART_STATUS);
-    return (MMIO32(UART_STATUS) & UART_RX_VALID) != 0;
+    return (uart_status_stable() & UART_RX_VALID) != 0;
 }
 
 #endif
