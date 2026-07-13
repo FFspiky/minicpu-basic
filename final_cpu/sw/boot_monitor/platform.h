@@ -89,6 +89,13 @@ static inline void uart_reset_receiver(void)
     uart_clear_receive_errors();
 }
 
-static inline int uart_available(void) { return (MMIO32(UART_STATUS) & UART_RX_VALID) != 0; }
+static inline int uart_available(void)
+{
+    /* CONFREG MMIO reads return through a registered path.  A single status
+       read can therefore retain RX_VALID from the byte just popped, causing
+       the monitor to enter an empty receive and clear the following frame. */
+    (void)MMIO32(UART_STATUS);
+    return (MMIO32(UART_STATUS) & UART_RX_VALID) != 0;
+}
 
 #endif
