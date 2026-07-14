@@ -5,7 +5,7 @@
 #include "test_config.h"
 
 #define TEST_NUM (TEST1*20 + TEST2*16 + TEST3*10 + TEST4*1 + TEST5*11 + TEST6*12 + TEST7*2 + TEST8*7 + TEST9*2)
-#define IDLE_MAX_LOOPS 500000
+#define IDLE_MAX_LOOPS 50000
 
 
 #if TEST8
