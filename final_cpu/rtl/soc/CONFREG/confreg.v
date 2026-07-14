@@ -562,7 +562,9 @@ uart_rx #(.CLOCK_HZ(CPU_CLOCK_HZ), .BAUD(115_200)) u_uart_rx (
     .data(uart_rx_data), .valid(uart_rx_valid), .frame_error(uart_rx_frame_error)
 );
 
-uart_fifo #(.DEPTH(16), .ADDR_WIDTH(4)) u_uart_rx_fifo (
+// One maximum DATA request is 1 SOF + 5 header + 260 payload + 4 CRC bytes.
+// Retain the complete frame even if the CPU briefly stalls between MMIO reads.
+uart_fifo #(.DEPTH(512), .ADDR_WIDTH(9)) u_uart_rx_fifo (
     .clk(clk), .resetn(resetn), .clear(uart_fifo_clear),
     .clear_overflow(uart_overflow_clear), .push_data(uart_rx_data),
     .push(uart_rx_valid), .pop(read_uart_valid && !uart_rx_empty),
