@@ -101,12 +101,12 @@ set rtl_files [concat \
     [glob -nocomplain ../rtl/CONFREG/*.v]]
 add_new_design_files $rtl_files
 
-set ip_xci_files [glob -nocomplain ../rtl/xilinx_ip/*/*.xci]
+set ip_xci_files [list ../rtl/xilinx_ip/clk_pll/clk_pll.xci]
 add_new_quiet_files $ip_xci_files
 add_new_design_files [glob -nocomplain ../rtl/xilinx_ip/clk_pll/*.v]
 
-# Add only the active EXP16 pipeline RTL.  Legacy teaching/reference modules
-# remain on disk but are intentionally excluded from the Vivado source set.
+# Add only the active EXP16 pipeline RTL. Keep the source set explicit so
+# generated projects cannot silently pick up unrelated RTL.
 set mycpu_files [list \
     ../../../myCPU/mycpu_top.v \
     ../../../myCPU/mycpu_pipeline.v \
@@ -167,10 +167,6 @@ set need_ip_generate $clean_project
 foreach required_ip_file {
     ../rtl/xilinx_ip/clk_pll/clk_pll.v
     ../rtl/xilinx_ip/clk_pll/clk_pll_clk_wiz.v
-    ../rtl/xilinx_ip/data_ram/sim/data_ram.v
-    ../rtl/xilinx_ip/data_ram/synth/data_ram.vhd
-    ../rtl/xilinx_ip/inst_ram/sim/inst_ram.v
-    ../rtl/xilinx_ip/inst_ram/synth/inst_ram.vhd
 } {
     if {![file exists $required_ip_file]} {
         set need_ip_generate 1

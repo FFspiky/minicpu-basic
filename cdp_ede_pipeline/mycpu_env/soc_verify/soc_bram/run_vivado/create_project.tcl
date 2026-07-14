@@ -1,16 +1,21 @@
 create_project -force loongson ./project -part xc7a200tfbg676-1
 
-# Add conventional sources
-add_files -scan_for_includes ../rtl
+# Add only the SoC sources used by the trace project. Avoid recursively
+# importing generated IP products or the LCD-only top level.
+add_files -scan_for_includes [list \
+    ../rtl/soc_lite_top.v \
+    ../rtl/BRIDGE/bridge_1x2.v \
+    ../rtl/CONFREG/confreg.v \
+]
 
-# Add IPs
-add_files -quiet [glob -nocomplain ../rtl/xilinx_ip/*/*.xci]
+# The SoC uses inferred unified RAM; only the clock wizard IP is active.
+add_files -quiet ../rtl/xilinx_ip/clk_pll/clk_pll.xci
 
 # Add simulation files
 add_files -fileset sim_1 ../testbench
 
-# Add only the active EXP16 pipeline RTL.  Legacy teaching/reference modules
-# remain on disk but are intentionally excluded from the Vivado source set.
+# Add only the active EXP16 pipeline RTL. Keep the source set explicit so
+# generated projects cannot silently pick up unrelated RTL.
 set mycpu_files [list \
     ../../../myCPU/mycpu_top.v \
     ../../../myCPU/mycpu_pipeline.v \
@@ -40,5 +45,8 @@ add_files -scan_for_includes $mycpu_files
 # Add constraints
 add_files -fileset constrs_1 -quiet ./constraints/soc_lite_top.xdc
 
+set_property -name "top" -value "soc_lite_top" -objects [get_filesets sources_1]
 set_property -name "top" -value "tb_top" -objects  [get_filesets sim_1]
 set_property -name "xsim.simulate.log_all_signals" -value "1" -objects [get_filesets sim_1]
+update_compile_order -fileset sources_1
+update_compile_order -fileset sim_1
