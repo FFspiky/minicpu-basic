@@ -1,3 +1,11 @@
+param(
+    [ValidateRange(1, 65535)]
+    [int]$Port = 8765,
+    [switch]$NoBrowser,
+    [switch]$SmokeTest,
+    [switch]$SkipToolchainSetup
+)
+
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $env:PYTHONPATH = $root
@@ -61,17 +69,21 @@ if (Test-Python $portablePython) {
 # is the only host prerequisite for C compilation; the UI and UART/NAND tools
 # remain usable without it.
 $toolchainArchive = Join-Path $root "runtime\loongarch32r.tar.gz"
-if (-not $env:LA32_GCC -and (Test-Path -LiteralPath $toolchainArchive)) {
+if (-not $SkipToolchainSetup -and -not $env:LA32_GCC -and (Test-Path -LiteralPath $toolchainArchive)) {
     $wsl = Get-Command wsl -ErrorAction SilentlyContinue
     if ($wsl) {
         $linuxRoot = (& $wsl.Source bash -lc 'printf %s "$HOME/.la32studio/loongarch32r"').Trim()
         if ($LASTEXITCODE -eq 0 -and $linuxRoot) {
             $linuxCompiler = "$linuxRoot/bin/loongarch32r-linux-gnusf-gcc"
-            & $wsl.Source bash -lc "test -x '$linuxCompiler'"
+            & $wsl.Source test -x $linuxCompiler
             if ($LASTEXITCODE -ne 0) {
                 Write-Host "Installing bundled LA32R GCC into WSL (first launch only)..."
                 $archiveWsl = Convert-ToWslPath $toolchainArchive
-                & $wsl.Source bash -lc "mkdir -p \"`$HOME/.la32studio\" && tar -xzf '$archiveWsl' -C \"`$HOME/.la32studio\""
+                $linuxInstallRoot = $linuxRoot.Substring(0, $linuxRoot.LastIndexOf('/'))
+                & $wsl.Source mkdir -p $linuxInstallRoot
+                if ($LASTEXITCODE -eq 0) {
+                    & $wsl.Source tar -xzf $archiveWsl -C $linuxInstallRoot
+                }
                 if ($LASTEXITCODE -ne 0) { throw "Failed to unpack the bundled LA32R GCC in WSL." }
             }
             $env:LA32_GCC = $linuxCompiler
@@ -87,10 +99,10 @@ if ($LASTEXITCODE -ne 0) {
     throw "The Python runtime is incomplete. Rebuild the portable distribution."
 }
 
-$url = "http://127.0.0.1:8765"
+$url = "http://127.0.0.1:$Port"
 Write-Host "Starting LA32 Studio at $url"
 $server = Start-Process -FilePath $python `
-    -ArgumentList @("-m", "la32asm", "studio") `
+    -ArgumentList @("-m", "la32asm", "studio", "--host", "127.0.0.1", "--port", "$Port") `
     -WorkingDirectory $root -NoNewWindow -PassThru
 
 try {
@@ -101,7 +113,7 @@ try {
         }
         try {
             $connection = [Net.Sockets.TcpClient]::new()
-            $connection.Connect("127.0.0.1", 8765)
+            $connection.Connect("127.0.0.1", $Port)
             $connection.Dispose()
             $ready = $true
             break
@@ -109,8 +121,13 @@ try {
             Start-Sleep -Milliseconds 100
         }
     }
-    if (-not $ready) { throw "LA32 Studio did not listen on port 8765 within 20 seconds." }
-    Start-Process $url
+    if (-not $ready) { throw "LA32 Studio did not listen on port $Port within 20 seconds." }
+    if ($SmokeTest) {
+        Invoke-RestMethod -Uri "$url/api/ports" -Method Get | Out-Null
+        Write-Host "LA32 Studio smoke test passed: $url/api/ports"
+        return
+    }
+    if (-not $NoBrowser) { Start-Process $url }
     Write-Host "LA32 Studio is running. Press Ctrl+C to stop it."
     Wait-Process -Id $server.Id
 } finally {

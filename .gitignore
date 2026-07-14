@@ -99,3 +99,8 @@ cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/*.vho
 # Diagram editor backup files
 .$*.bkp
 *.drawio.bkp
+
+# Generated LA32 Studio portable release artifacts
+LA32-Studio-Portable*/
+LA32-Studio-Portable*.zip
+LA32-Studio-Portable*.zip.sha256
