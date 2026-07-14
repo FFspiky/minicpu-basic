@@ -6,7 +6,7 @@ from la32asm.assembler import Assembler, AssemblyError
 from la32asm.image import Image, ImageError, ImageType
 from la32asm.protocol import Downloader, Frame, FrameType
 from la32asm.cli import _connect_board, _send_break_reset
-from la32asm.studio import _boot_monitor, _probe_monitor
+from la32asm.studio import _boot_monitor, _probe_monitor, read_directory_slots
 
 
 class AssemblerTests(unittest.TestCase):
@@ -121,6 +121,45 @@ class ProtocolTests(unittest.TestCase):
     def test_frame_round_trip(self):
         frame = Frame(FrameType.DATA, 7, b"payload")
         self.assertEqual(Frame.unpack(frame.pack()), frame)
+
+    def test_studio_reads_directory_as_short_per_slot_frames(self):
+        class DirectoryDownloader:
+            def __init__(self): self.requests = []
+            def slot_command(self, operation, slot):
+                self.requests.append((operation, slot))
+                name = (f"slot-{slot}".encode() + bytes(32))[:32]
+                record = struct.pack(
+                    "<32sIIBBH7H", name, 1000 + slot, 0x12340000 + slot,
+                    1, 1, 0, 20 + slot, 0, 0, 0, 0, 0, 0,
+                )
+                payload = struct.pack("<IIHH", 0x4C413332, 6, 3, slot) + record
+                return Frame(FrameType.DONE, slot, payload)
+
+        downloader = DirectoryDownloader()
+        rows = read_directory_slots(downloader)
+        self.assertEqual(
+            downloader.requests,
+            [(FrameType.LIST, slot) for slot in range(16)],
+        )
+        self.assertEqual(len(rows), 16)
+        self.assertEqual(rows[0]["name"], "slot-0")
+        self.assertEqual(rows[1]["blocks"], [21])
+        self.assertTrue(rows[0]["valid"])
+        self.assertTrue(rows[1]["valid"])
+        self.assertFalse(rows[2]["valid"])
+
+    def test_studio_rejects_inconsistent_short_directory_frames(self):
+        class ChangingDirectoryDownloader:
+            def slot_command(self, operation, slot):
+                record = struct.pack("<32sIIBBH7H", b"", 0, 0, 0, 0, 0,
+                                     0, 0, 0, 0, 0, 0, 0)
+                return Frame(
+                    FrameType.DONE, slot,
+                    struct.pack("<IIHH", 0x4C413332, slot, 0, slot) + record,
+                )
+
+        with self.assertRaisesRegex(ValueError, "changed while"):
+            read_directory_slots(ChangingDirectoryDownloader())
 
     def test_downloader_waits_for_ready_after_boot_text(self):
         class SerialBytes:

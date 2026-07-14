@@ -21,6 +21,10 @@
 #define FT_SCAN_DIRECTORIES 15
 
 struct frame { u8 type; u16 sequence,length; u8 payload[520]; };
+struct __attribute__((packed)) directory_slot_response {
+    u32 magic,generation;u16 valid_mask,slot_index;
+    struct program_slot slot;
+};
 static u32 expected_size,receive_operation,receive_slot;
 static u16 previous_keys;
 static u16 completed_end_sequence;
@@ -124,7 +128,18 @@ static void handle_frame(struct frame *f)
         case FT_LIST:
         {
             const struct program_directory *d=nand_directory();
-            send_frame(FT_DONE,f->sequence,(const u8 *)d,sizeof(*d));break;
+            if(f->length==0) {
+                /* Keep the original full-directory reply for old tools. */
+                send_frame(FT_DONE,f->sequence,(const u8 *)d,sizeof(*d));
+            } else if(f->length==1&&f->payload[0]<PROGRAM_SLOTS) {
+                static struct directory_slot_response response;
+                u32 slot=f->payload[0];
+                response.magic=d->magic;response.generation=d->generation;
+                response.valid_mask=d->valid_mask;response.slot_index=(u16)slot;
+                response.slot=d->slots[slot];
+                send_frame(FT_DONE,f->sequence,(const u8 *)&response,sizeof(response));
+            } else reply(FT_NACK,f->sequence,11);
+            break;
         }
         case FT_DIAGNOSTICS:
         {

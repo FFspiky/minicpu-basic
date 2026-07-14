@@ -407,16 +407,52 @@ def build_selftest() -> dict:
             "report":report}
 
 
+DIRECTORY_HEADER = struct.Struct("<IIHH")
+DIRECTORY_SLOT = struct.Struct("<32sIIBBH7H")
+
+
+def _parse_directory_row(slot: int, mask: int, payload: bytes, offset: int) -> dict:
+    name,size,crc,image_type,blocks,_,*physical=DIRECTORY_SLOT.unpack_from(payload,offset)
+    return {"slot":slot,"valid":bool(mask&(1<<slot)),
+            "name":name.split(b"\0",1)[0].decode("utf-8","replace"),
+            "size":size,"crc":f"{crc:08x}","type":image_type,
+            "blocks":physical[:blocks]}
+
+
 def parse_directory(payload: bytes) -> list[dict]:
     if len(payload) < 1072:
         raise ValueError("board directory response is truncated")
-    magic, generation, mask, _ = struct.unpack_from("<IIHH", payload)
-    rows=[]; offset=12; slot_struct=struct.Struct("<32sIIBBH7H")
+    _, _, mask, _ = DIRECTORY_HEADER.unpack_from(payload)
+    rows=[]; offset=DIRECTORY_HEADER.size
     for slot in range(16):
-        name,size,crc,image_type,blocks,_,*physical=slot_struct.unpack_from(payload,offset)
-        rows.append({"slot":slot,"valid":bool(mask&(1<<slot)),"name":name.split(b"\0",1)[0].decode("utf-8","replace"),
-                     "size":size,"crc":f"{crc:08x}","type":image_type,"blocks":physical[:blocks]})
-        offset+=slot_struct.size
+        rows.append(_parse_directory_row(slot,mask,payload,offset))
+        offset+=DIRECTORY_SLOT.size
+    return rows
+
+
+def read_directory_slots(downloader: Downloader) -> list[dict]:
+    """Read the directory as sixteen retryable 70-byte responses."""
+    rows=[]; identity=None
+    expected_size=DIRECTORY_HEADER.size+DIRECTORY_SLOT.size
+    for requested_slot in range(16):
+        response=downloader.slot_command(FrameType.LIST,requested_slot)
+        if len(response.payload)!=expected_size:
+            raise ValueError(
+                f"board slot {requested_slot} response has {len(response.payload)} bytes; "
+                f"expected {expected_size}"
+            )
+        magic,generation,mask,returned_slot=DIRECTORY_HEADER.unpack_from(response.payload)
+        if returned_slot!=requested_slot:
+            raise ValueError(
+                f"board returned slot {returned_slot} while reading slot {requested_slot}"
+            )
+        current_identity=(magic,generation,mask)
+        if identity is None: identity=current_identity
+        elif current_identity!=identity:
+            raise ValueError("board directory changed while it was being read")
+        rows.append(_parse_directory_row(
+            returned_slot,mask,response.payload,DIRECTORY_HEADER.size
+        ))
     return rows
 
 
@@ -467,8 +503,7 @@ def create_app():
             with SERIAL_LOCK,_serial(req.port) as port:
                 downloader=_boot_monitor(port)
                 _progress_update("directory", "正在接收NAND程序目录")
-                response=downloader.slot_command(FrameType.LIST)
-            result=parse_directory(response.payload)
+                result=read_directory_slots(downloader)
             _progress_finish("NAND目录读取完成")
             return result
         except Exception as e:
@@ -485,8 +520,8 @@ def create_app():
                     progress=_transfer_progress(FrameType.INSTALL),
                 )
                 _progress_update("directory","安装完成，正在刷新NAND目录")
-                response=downloader.slot_command(FrameType.LIST)
-            result={"ok":True,"slots":parse_directory(response.payload)}
+                slots=read_directory_slots(downloader)
+            result={"ok":True,"slots":slots}
             _progress_finish(f"程序已安装到槽{req.slot}")
             return result
         except Exception as e:
@@ -497,8 +532,8 @@ def create_app():
             with SERIAL_LOCK,_serial(req.port) as port:
                 downloader=_boot_monitor(port)
                 downloader.slot_command(FrameType.REMOVE,req.slot)
-                response=downloader.slot_command(FrameType.LIST)
-            return {"ok":True,"slots":parse_directory(response.payload)}
+                slots=read_directory_slots(downloader)
+            return {"ok":True,"slots":slots}
         except Exception as e:raise HTTPException(500,str(e))
     @app.post("/api/verify")
     def verify(req:SlotRequest):
@@ -517,8 +552,8 @@ def create_app():
                 _progress_update("commit","正在擦除并写入双副本目录")
                 downloader.slot_command(FrameType.FORMAT)
                 _progress_update("directory","正在读取初始化后的目录")
-                response=downloader.slot_command(FrameType.LIST)
-            result={"ok":True,"slots":parse_directory(response.payload)}
+                slots=read_directory_slots(downloader)
+            result={"ok":True,"slots":slots}
             _progress_finish("程序盘初始化完成")
             return result
         except Exception as e:
