@@ -179,7 +179,7 @@ module vga_program_menu(
                                                 title_char(char_col-10);
         else if(system_mode==2'd2 && char_row==10 && char_col>=12 && char_col<20)
             character=selftest_char((led_rg0==2'd1 && led_rg1==2'd1) ? 2'd1 :
-                                    ((led_rg0==2'd2 || led_rg1==2'd2) ? 2'd2 : 2'd0),char_col-12);
+                                    ((led_rg0==2'd2 && led_rg1==2'd2) ? 2'd2 : 2'd0),char_col-12);
         else if(system_mode==2'd3 && char_row==10 && char_col>=12 && char_col<19)
             character=selftest_char(2'd0,char_col-12);
         else if (system_mode==2'd0 && char_row >= 6 && char_row < 22)
