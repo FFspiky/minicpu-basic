@@ -29,6 +29,7 @@ class FrameType(IntEnum):
     FORMAT = 13
     DIAGNOSTICS = 14
     SCAN_DIRECTORIES = 15
+    RUN_START = 16
 
 
 @dataclass(frozen=True)
@@ -159,7 +160,7 @@ class Downloader:
             # offset and bytes.  The board UART occasionally accepts traffic
             # only in short phase windows; three adjacent copies produced an
             # ACK in every group during the 50-frame hardware stress test,
-            # without duplicating INSTALL or END side effects.
+            # without duplicating the non-idempotent INSTALL request.
             self.request(
                 FrameType.DATA,
                 struct.pack("<I", offset) + chunk,
@@ -182,6 +183,9 @@ class Downloader:
         # lost DONE promptly, while the largest supported images still get a
         # bounded window for synchronous program/readback.  END is idempotent
         # in the monitor, so same-sequence retransmission cannot install twice.
+        # Send adjacent copies as well as timed retries: on RUN_TEMPORARY the
+        # monitor flushes DONE before starting the application, so one accepted
+        # copy is sufficient and queued duplicates cannot pre-empt the reply.
         page_count = (len(image) + 2047) // 2048
         commit_timeout = max(5.0, 2.0 + page_count * 0.15)
         self.request(
@@ -189,7 +193,19 @@ class Downloader:
             struct.pack("<I", zlib.crc32(image) & 0xFFFFFFFF),
             timeout=commit_timeout,
             retries=self.retries,
+            copies=3,
         )
+        if operation == FrameType.RUN_TEMPORARY:
+            # END only validates the RAM image.  Keep the monitor available
+            # until DONE has actually reached us, then send a one-way start
+            # command and immediately return to the caller's output capture.
+            # Adjacent copies make the command robust to the board RX phase;
+            # after the first copy starts the application, later copies are
+            # harmless bytes in an RX FIFO the generic runtime does not read.
+            start = Frame(FrameType.RUN_START, self.sequence).pack()
+            for _ in range(3):
+                self.serial.write(start)
+            self.sequence = (self.sequence + 1) & 0xFFFF
         if progress:
             progress("done", total_frames, total_frames, len(image), len(image))
 

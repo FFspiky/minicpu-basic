@@ -230,18 +230,56 @@ class ProtocolTests(unittest.TestCase):
         )
         for group in range(0, len(data), 3):
             self.assertEqual(data[group:group + 3], [data[group]] * 3)
-        side_effects = [
+        non_data = [
             request.frame_type for request in stream.requests
             if request.frame_type != FrameType.DATA
         ]
-        self.assertEqual(side_effects, [
-            FrameType.INSTALL, FrameType.HEADER, FrameType.END,
+        self.assertEqual(non_data, [
+            FrameType.INSTALL, FrameType.HEADER,
+            FrameType.END, FrameType.END, FrameType.END,
         ])
+        end = [request for request in stream.requests
+               if request.frame_type == FrameType.END]
+        self.assertEqual(end, [end[0]] * 3)
         self.assertEqual([event[0] for event in progress], [
             "prepare", "transfer", "transfer", "transfer", "transfer",
             "transfer", "commit", "done",
         ])
         self.assertEqual(progress[-1][1:], (5, 5, 1025, 1025))
+
+    def test_temporary_run_starts_only_after_end_done(self):
+        class TransferSerial:
+            def __init__(self):
+                self.data = bytearray()
+                self.requests = []
+            def write(self, data):
+                request = Frame.unpack(bytes(data))
+                self.requests.append(request)
+                if request.frame_type != FrameType.RUN_START:
+                    self.data.extend(
+                        Frame(FrameType.DONE, request.sequence, b"\0").pack()
+                    )
+                return len(data)
+            def read(self, size):
+                chunk = self.data[:size]
+                del self.data[:size]
+                return bytes(chunk)
+
+        stream = TransferSerial()
+        downloader = Downloader(stream, retries=2, timeout=0.05)
+        downloader.transfer_image(
+            bytes(16), FrameType.RUN_TEMPORARY, 15,
+        )
+        end_indexes = [index for index, request in enumerate(stream.requests)
+                       if request.frame_type == FrameType.END]
+        start_indexes = [index for index, request in enumerate(stream.requests)
+                         if request.frame_type == FrameType.RUN_START]
+        self.assertEqual(len(end_indexes), 3)
+        self.assertEqual(len(start_indexes), 3)
+        self.assertLess(max(end_indexes), min(start_indexes))
+        starts = [stream.requests[index] for index in start_indexes]
+        self.assertEqual(starts, [starts[0]] * 3)
+        self.assertEqual(starts[0].sequence, 4)
 
     def test_studio_attaches_to_existing_monitor_without_reset(self):
         class MonitorSerial:

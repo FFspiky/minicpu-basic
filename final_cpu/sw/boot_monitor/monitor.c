@@ -19,6 +19,7 @@
 #define FT_FORMAT 13
 #define FT_DIAGNOSTICS 14
 #define FT_SCAN_DIRECTORIES 15
+#define FT_RUN_START 16
 
 struct frame { u8 type; u16 sequence,length; u8 payload[520]; };
 struct __attribute__((packed)) directory_slot_response {
@@ -31,6 +32,7 @@ static u16 completed_end_sequence;
 static u32 completed_end_crc;
 static int completed_end_result;
 static u8 completed_end_valid;
+static u8 run_ready;
 
 static void put_text(const char *s){while(*s)uart_putc((u8)*s++);}
 static u16 read_u16(const u8 *p){return (u16)p[0]|((u16)p[1]<<8);}
@@ -95,7 +97,7 @@ static void handle_frame(struct frame *f)
             if(f->length<5){reply(FT_NACK,f->sequence,1);break;}
             receive_operation=f->type;receive_slot=f->payload[0];expected_size=read_u32(f->payload+1);
             if(expected_size>APP_END-APP_START||receive_slot>=PROGRAM_SLOTS)reply(FT_NACK,f->sequence,2);
-            else {completed_end_valid=0;reply(FT_ACK,f->sequence,0);}
+            else {completed_end_valid=0;run_ready=0;reply(FT_ACK,f->sequence,0);}
             break;
         case FT_HEADER: reply(FT_ACK,f->sequence,0);break;
         case FT_DATA:
@@ -115,14 +117,19 @@ static void handle_frame(struct frame *f)
             completed_end_result=result;completed_end_valid=1;
             if(result){MMIO32(MENU_STATUS)=0xff;reply(FT_NACK,f->sequence,6);}
             else {
-                update_menu();MMIO32(MENU_STATUS)=0;reply(FT_DONE,f->sequence,0);
-                if(receive_operation==FT_RUN_TEMP) {
-                    /* DONE must reach the host before the monitor is replaced
-                       by the downloaded application.  Otherwise a lost or
-                       partially queued reply can never be retransmitted. */
-                    uart_flush();
-                    image_load_and_start((void *)APP_START,expected_size,15);
-                }
+                update_menu();MMIO32(MENU_STATUS)=0;
+                run_ready=receive_operation==FT_RUN_TEMP;
+                /* Keep the monitor alive after DONE.  The host sends a
+                   one-way RUN_START only after it has received this reply. */
+                reply(FT_DONE,f->sequence,0);
+            }
+            break;
+        case FT_RUN_START:
+            if(f->length!=0||!run_ready)reply(FT_NACK,f->sequence,12);
+            else {
+                run_ready=0;
+                result=image_load_and_start((void *)APP_START,expected_size,15);
+                if(result)MMIO32(MENU_STATUS)=0xff;
             }
             break;
         case FT_REMOVE:
