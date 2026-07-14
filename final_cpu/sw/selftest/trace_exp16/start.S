@@ -567,6 +567,10 @@ inst_test:
     NOP4
     bl idle_1s
     NOP4
+
+    la.local a0, vga_running_text
+    bl       uart_puts
+    NOP4
     
 #endif
 ############################
@@ -620,6 +624,10 @@ inst_test:
     
     bl n36_mod_wu_test   #mod.wu
     bl idle_1s
+
+    la.local a0, vga_running_text
+    bl       uart_puts
+    NOP4
     
 #endif
 ############################
@@ -655,6 +663,10 @@ inst_test:
     
     bl n46_st_h_test    #st.h
     bl idle_1s
+
+    la.local a0, vga_running_text
+    bl       uart_puts
+    NOP4
     
 #endif
 ############################
@@ -665,6 +677,10 @@ inst_test:
 
     bl n47_syscall_ex_test       #syscall
     bl idle_1s
+
+    la.local a0, vga_running_text
+    bl       uart_puts
+    NOP4
 #endif 
 ############################
 ############################
@@ -704,6 +720,10 @@ inst_test:
 
     bl n58_rdcnt_test          #rdcntvl.w and rdcntvh.w test
     bl idle_1s
+
+    la.local a0, vga_running_text
+    bl       uart_puts
+    NOP4
 
 #endif
 

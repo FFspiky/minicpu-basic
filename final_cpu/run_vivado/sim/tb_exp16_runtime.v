@@ -33,22 +33,32 @@ module tb_exp16_runtime;
 
     function [7:0] expected_telemetry;
         input integer position;
+        integer offset;
         begin
-            case(position)
-                0,13:expected_telemetry="V";
-                1,14:expected_telemetry="G";
-                2,15:expected_telemetry="A";
-                3,16:expected_telemetry=":";
-                4:expected_telemetry="R"; 5:expected_telemetry="U";
-                6,7:expected_telemetry="N"; 8:expected_telemetry="I";
-                9:expected_telemetry="N"; 10:expected_telemetry="G";
-                11,23:expected_telemetry=8'h0d;
-                12,24:expected_telemetry=8'h0a;
-                17:expected_telemetry="P"; 18:expected_telemetry="A";
-                19,20:expected_telemetry="S"; 21:expected_telemetry="E";
-                22:expected_telemetry="D";
-                default:expected_telemetry=0;
-            endcase
+            if(position < 78) begin
+                // Initial RUNNING plus one checkpoint after each of TEST1-5.
+                offset=position%13;
+                case(offset)
+                    0:expected_telemetry="V"; 1:expected_telemetry="G";
+                    2:expected_telemetry="A"; 3:expected_telemetry=":";
+                    4:expected_telemetry="R"; 5:expected_telemetry="U";
+                    6,7:expected_telemetry="N"; 8:expected_telemetry="I";
+                    9:expected_telemetry="N"; 10:expected_telemetry="G";
+                    11:expected_telemetry=8'h0d; 12:expected_telemetry=8'h0a;
+                    default:expected_telemetry=0;
+                endcase
+            end else begin
+                offset=position-78;
+                case(offset)
+                    0:expected_telemetry="V"; 1:expected_telemetry="G";
+                    2:expected_telemetry="A"; 3:expected_telemetry=":";
+                    4:expected_telemetry="P"; 5:expected_telemetry="A";
+                    6,7:expected_telemetry="S"; 8:expected_telemetry="E";
+                    9:expected_telemetry="D"; 10:expected_telemetry=8'h0d;
+                    11:expected_telemetry=8'h0a;
+                    default:expected_telemetry=0;
+                endcase
+            end
         end
     endfunction
 
@@ -79,10 +89,10 @@ module tb_exp16_runtime;
             @(negedge clk);cycles=cycles+1;
         end
         if(led_rg0==2'd1&&led_rg1==2'd1) begin
-            while(cycles<21_000_000 && telemetry_count<25) begin
+            while(cycles<21_000_000 && telemetry_count<90) begin
                 @(negedge clk);cycles=cycles+1;
             end
-            if(telemetry_count<25) begin
+            if(telemetry_count<90) begin
                 $display("FAIL PIPELINE EXP16 missing PASSED telemetry bytes=%0d",
                          telemetry_count);
                 $fatal;
