@@ -194,10 +194,19 @@ proc write_stage_reports {script_dir stage} {
         set impl_run_dir [get_property DIRECTORY [get_runs impl_1]]
         set top_name [get_property TOP [get_filesets sources_1]]
         set checkpoint_suffix [expr {$stage eq "place" ? "placed" : "routed"}]
+        if {$stage eq "route" &&
+            [get_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED [get_runs impl_1]]} {
+            # Vivado writes the final, post-route-phys-opt design under this
+            # suffix.  The plain routed checkpoint predates that optimization
+            # and can therefore report stale negative slack even though the
+            # bitstream was generated from a timing-clean design.
+            set checkpoint_suffix "postroute_physopt"
+        }
         set stage_checkpoint [file join $impl_run_dir ${top_name}_${checkpoint_suffix}.dcp]
         if {![file exists $stage_checkpoint]} {
             error "$stage checkpoint is missing: $stage_checkpoint"
         }
+        puts "INFO: $stage timing gate uses checkpoint $stage_checkpoint"
         open_checkpoint $stage_checkpoint
         report_utilization -hierarchical -file [file join $report_dir utilization_${stage}.rpt]
         report_drc -file [file join $report_dir drc_${stage}.rpt]
