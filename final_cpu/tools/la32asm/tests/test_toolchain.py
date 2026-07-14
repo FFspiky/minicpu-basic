@@ -181,6 +181,18 @@ class ProtocolTests(unittest.TestCase):
         self.assertTrue(status["selected_valid"])
         self.assertEqual(status["dynamic_end_pc"], "0x1c020000")
 
+    def test_studio_decodes_program_running_and_done(self):
+        class StatusDownloader:
+            def __init__(self, value): self.value = value
+            def request(self, operation):
+                return Frame(
+                    FrameType.DONE, 4,
+                    struct.pack("<7I", 1, 3, 15, 0, 1, self.value, 0),
+                )
+
+        self.assertEqual(read_ui_status(StatusDownloader(3))["status_text"], "RUNNING")
+        self.assertEqual(read_ui_status(StatusDownloader(4))["status_text"], "DONE")
+
     def test_downloader_waits_for_ready_after_boot_text(self):
         class SerialBytes:
             def __init__(self, data): self.data = bytearray(data)

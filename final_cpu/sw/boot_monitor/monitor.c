@@ -133,6 +133,7 @@ static void handle_frame(struct frame *f)
             if(f->length!=0||!run_ready)reply(FT_NACK,f->sequence,12);
             else {
                 run_ready=0;
+                MMIO32(MENU_STATUS)=3;
                 result=image_load_and_start((void *)APP_START,expected_size,15);
                 if(result)MMIO32(MENU_STATUS)=0xff;
             }

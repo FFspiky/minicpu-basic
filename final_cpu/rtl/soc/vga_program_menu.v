@@ -83,6 +83,10 @@ module vga_program_menu(
                 case(pos) 0:status_char="E";1:status_char="R";2:status_char="R";3:status_char="O";4:status_char="R";default:status_char=" ";endcase
             else if (value == 0)
                 case(pos) 0:status_char="R";1:status_char="E";2:status_char="A";3:status_char="D";4:status_char="Y";default:status_char=" ";endcase
+            else if (value == 3)
+                case(pos) 0:status_char="R";1:status_char="U";2,3:status_char="N";4:status_char="I";5:status_char="N";6:status_char="G";default:status_char=" ";endcase
+            else if (value == 4)
+                case(pos) 0:status_char="D";1:status_char="O";2:status_char="N";3:status_char="E";default:status_char=" ";endcase
             else
                 case(pos) 0:status_char="L";1:status_char="O";2:status_char="A";3:status_char="D";4:status_char="I";5:status_char="N";6:status_char="G";default:status_char=" ";endcase
         end
@@ -111,6 +115,33 @@ module vga_program_menu(
                 9:generic_title_char="R"; 10:generic_title_char="O"; 11:generic_title_char="G";
                 12:generic_title_char="R"; 13:generic_title_char="A"; 14:generic_title_char="M";
                 default:generic_title_char=" ";
+            endcase
+        end
+    endfunction
+
+    function [7:0] generic_status_char;
+        input done;
+        input [5:0] pos;
+        begin
+            if(done)
+                case(pos)0:generic_status_char="D";1:generic_status_char="O";2:generic_status_char="N";3:generic_status_char="E";default:generic_status_char=" ";endcase
+            else
+                case(pos)0:generic_status_char="R";1:generic_status_char="U";2,3:generic_status_char="N";4:generic_status_char="I";5:generic_status_char="N";6:generic_status_char="G";default:generic_status_char=" ";endcase
+        end
+    endfunction
+
+    function [7:0] generic_hint_char;
+        input [5:0] pos;
+        begin
+            case(pos)
+                0:generic_hint_char="W";1:generic_hint_char="A";2:generic_hint_char="T";3:generic_hint_char="C";4:generic_hint_char="H";
+                5:generic_hint_char=" ";6:generic_hint_char="T";7:generic_hint_char="H";8:generic_hint_char="E";9:generic_hint_char=" ";
+                10:generic_hint_char="L";11:generic_hint_char="C";12:generic_hint_char="D";13:generic_hint_char=" ";
+                14:generic_hint_char="T";15:generic_hint_char="O";16:generic_hint_char=" ";
+                17:generic_hint_char="C";18:generic_hint_char="H";19:generic_hint_char="E";20:generic_hint_char="C";21:generic_hint_char="K";22:generic_hint_char=" ";
+                23:generic_hint_char="T";24:generic_hint_char="H";25:generic_hint_char="E";26:generic_hint_char=" ";
+                27:generic_hint_char="O";28:generic_hint_char="U";29:generic_hint_char="T";30:generic_hint_char="P";31:generic_hint_char="U";32:generic_hint_char="T";
+                default:generic_hint_char=" ";
             endcase
         end
     endfunction
@@ -181,7 +212,9 @@ module vga_program_menu(
             character=selftest_char((led_rg0==2'd1 && led_rg1==2'd1) ? 2'd1 :
                                     ((led_rg0==2'd2 && led_rg1==2'd2) ? 2'd2 : 2'd0),char_col-12);
         else if(system_mode==2'd3 && char_row==10 && char_col>=12 && char_col<19)
-            character=selftest_char(2'd0,char_col-12);
+            character=generic_status_char(status==8'd4,char_col-12);
+        else if(system_mode==2'd3 && status==8'd4 && char_row==13 && char_col>=3 && char_col<36)
+            character=generic_hint_char(char_col-3);
         else if (system_mode==2'd0 && char_row >= 6 && char_row < 22)
         begin
             row_slot=char_row-6;

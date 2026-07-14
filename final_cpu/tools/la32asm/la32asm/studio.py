@@ -471,8 +471,9 @@ def read_ui_status(downloader: Downloader) -> dict:
             "active_slot":active,"selected_slot":selected,
             "selected_valid":selected<16 and bool(valid&(1<<selected)),
             "valid_mask":f"0x{valid:04x}","menu_status":status,
-            "status_text":"ERROR" if status==0xff else
-                          ("READY" if status==0 else "LOADING"),
+            "status_text":{0:"READY",3:"RUNNING",4:"DONE",0xff:"ERROR"}.get(
+                status,"LOADING"
+            ),
             "dynamic_end_pc":f"0x{end_pc:08x}"}
 
 
