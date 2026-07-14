@@ -13,11 +13,22 @@ $requirements = Join-Path $root "requirements.txt"
 $venv = Join-Path $root ".venv"
 $portablePython = Join-Path $root "runtime\python\python.exe"
 $python = $null
+$usingPortable = $false
+
+function Test-PythonCommand([string]$Candidate, [string]$Code) {
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "SilentlyContinue"
+        & $Candidate -c $Code 2>$null
+        return $LASTEXITCODE -eq 0
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+}
 
 function Test-Python([string]$Candidate) {
     if (-not (Test-Path -LiteralPath $Candidate -PathType Leaf)) { return $false }
-    & $Candidate -c "import sys; assert sys.version_info >= (3, 10)" 2>$null
-    return $LASTEXITCODE -eq 0
+    return Test-PythonCommand $Candidate "import sys; assert sys.version_info >= (3, 10)"
 }
 
 function Convert-ToWslPath([string]$WindowsPath) {
@@ -29,6 +40,7 @@ function Convert-ToWslPath([string]$WindowsPath) {
 
 if (Test-Python $portablePython) {
     $python = $portablePython
+    $usingPortable = $true
     Write-Host "Using bundled Python runtime."
 } else {
     $venvPython = Join-Path $venv "Scripts\python.exe"
@@ -56,13 +68,30 @@ if (Test-Python $portablePython) {
             & $launcher.Source -m venv $venv
         }
         if ($LASTEXITCODE -ne 0) { throw "Failed to create Python environment." }
-
-        $venvPython = Join-Path $venv "Scripts\python.exe"
-        Write-Host "Installing LA32 Studio dependencies..."
-        & $venvPython -m pip install -r $requirements
-        if ($LASTEXITCODE -ne 0) { throw "Failed to install LA32 Studio dependencies." }
     }
     $python = $venvPython
+}
+
+if (-not $usingPortable) {
+    $requirementsHash = (Get-FileHash -LiteralPath $requirements -Algorithm SHA256).Hash
+    $requirementsStamp = Join-Path $venv ".requirements.sha256"
+    $installedHash = if (Test-Path -LiteralPath $requirementsStamp) {
+        [IO.File]::ReadAllText($requirementsStamp).Trim()
+    } else { "" }
+    $dependenciesReady = Test-PythonCommand $python "import fastapi, uvicorn, pydantic, serial"
+    $needsDependencies = -not $dependenciesReady -or $installedHash -ne $requirementsHash
+    if ($needsDependencies) {
+        Write-Host "Installing LA32 Studio dependencies..."
+        $uv = Get-Command uv -ErrorAction SilentlyContinue
+        if ($uv) {
+            & $uv.Source pip install --python $python -r $requirements
+        } else {
+            & $python -m ensurepip --upgrade
+            if ($LASTEXITCODE -eq 0) { & $python -m pip install -r $requirements }
+        }
+        if ($LASTEXITCODE -ne 0) { throw "Failed to install LA32 Studio dependencies." }
+        [IO.File]::WriteAllText($requirementsStamp, "$requirementsHash`r`n", [Text.Encoding]::ASCII)
+    }
 }
 
 # A portable package carries the Linux-hosted teaching GCC as a tarball.  WSL
@@ -94,8 +123,7 @@ if (-not $SkipToolchainSetup -and -not $env:LA32_GCC -and (Test-Path -LiteralPat
     }
 }
 
-& $python -c "import fastapi, uvicorn, pydantic, serial" 2>$null
-if ($LASTEXITCODE -ne 0) {
+if (-not (Test-PythonCommand $python "import fastapi, uvicorn, pydantic, serial")) {
     throw "The Python runtime is incomplete. Rebuild the portable distribution."
 }
 
