@@ -104,3 +104,6 @@ cdp_ede*/mycpu_env/**/rtl/xilinx_ip/**/*.vho
 LA32-Studio-Portable*/
 LA32-Studio-Portable*.zip
 LA32-Studio-Portable*.zip.sha256
+
+# Local staging area for GitHub source/release uploads
+/github_upload/

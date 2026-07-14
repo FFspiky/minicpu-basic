@@ -14,7 +14,9 @@ C / LA32R 汇编源码
   -> 菜单选择并由 final_cpu 执行
 ```
 
-FPGA 只需烧录一次。此后更换赛车、流水线 EXP16 或其他程序不需要重新生成 COE、综合或烧写比特流。
+当前通过JTAG把bitstream写入FPGA配置SRAM，因此每次完全断电后都要重新下载同一
+bitstream；如需上电自动配置，应另行烧写板载配置Flash。赛车、流水线EXP16和
+其他应用保存在独立NAND中，更换应用不需要重新生成COE、综合或生成bitstream。
 
 ## 运行模式与显示
 
@@ -49,8 +51,9 @@ FPGA 只需烧录一次。此后更换赛车、流水线 EXP16 或其他程序�
 
 ### Boot Monitor
 
-```bash
-wsl bash -lc "cd /mnt/d/CPU_DESIGN/final_cpu/sw/boot_monitor && make clean && make install"
+```powershell
+$repoWsl=(wsl.exe wslpath -a (Get-Location).Path).Trim()
+wsl.exe bash -lc "cd '$repoWsl/final_cpu/sw/boot_monitor' && make clean && make install"
 ```
 
 `make install`只更新工程使用的MIF/COE；不会运行Vivado综合或生成比特流。
@@ -58,7 +61,7 @@ wsl bash -lc "cd /mnt/d/CPU_DESIGN/final_cpu/sw/boot_monitor && make clean && ma
 ### 赛车
 
 ```powershell
-$env:PYTHONPATH='D:\CPU_DESIGN\final_cpu\tools\la32asm'
+$env:PYTHONPATH=(Resolve-Path .\final_cpu\tools\la32asm).Path
 uv run --python 3.12 python -m la32asm build `
   final_cpu\sw\game\start.S final_cpu\sw\game\racing_game.c `
   -o final_cpu\tools\la32asm\build\racing.la32img `
@@ -76,8 +79,7 @@ uv run --python 3.12 python final_cpu\sw\selftest\build_exp16.py
 ### LA32 Studio
 
 ```powershell
-cd final_cpu\tools\la32asm
-.\start_studio.ps1
+.\LA32-Studio.cmd
 ```
 
 页面中的“构建当前 C”会显示C源码、GCC生成的LA32R汇编和自研汇编器机器码清单；“构建并运行”会临时下载镜像到RAM并收集开发板UART输出。内置微型运行库提供`putchar`、`puts`、`print_int`以及支持`%d/%u/%x/%X/%c/%s/%%`的简化`printf`。例如：
@@ -108,7 +110,7 @@ int main(void) {
 
 ## 已完成验证
 
-- 自研工具链10项单元/集成测试通过，包括多GCC翻译单元局部符号隔离、`.comm` BSS布局和Boot READY同步。
+- 自研工具链24项单元/集成测试通过，包括多GCC翻译单元局部符号隔离、`.comm` BSS布局、Boot READY同步、短帧目录读取、运行状态回传和可靠复位。
 - 赛车GCC汇编经自研汇编后的2740字节机器码与既有GNU结果逐字节一致。
 - 完整流水线EXP16 `n1～n58`已生成约532 KiB LA32IMG，并与重定位后的GNU参考机器码进行差分验证。
 - 完整EXP16已在`final_cpu`流水线RTL中实际运行通过：`PASS PIPELINE EXP16`，332,206周期后得到双绿灯结果。
@@ -121,15 +123,16 @@ int main(void) {
 - 全部RTL通过Vivado 2019.2 `xvlog`编译。
 - Boot Monitor低于64 KiB保护区限制。
 
-## 尚需在Vivado GUI/开发板验证
+## 稳定版实板验收（2026-07-14）
 
-- 仓库中现有旧bitstream不包含本轮Boot写保护和NAND BRAM修复，必须按下方分阶段流程重新生成一次。
-- 综合、实现、时序收敛和比特流生成。
-- 真实RS-232、NAND坏块和ECC行为。
-- 完整EXP16的真实开发板STEP/RUN、LCD提交信息及板上trace表现。
-- 赛车与SELFTEST断电保存、菜单切换及连续运行。
+- 完整非增量实现和bitstream生成成功；最终WNS为`+1.256 ns`、WHS为`+0.052 ns`，时序约束全部满足，routed DRC为0 Error。
+- bitstream经JTAG下载到`xc7a200t`成功，下载操作没有修改NAND目录。
+- LCD恢复原CPU调试面板，并只增加一个`OUT`和一个`IN`槽位；C程序输出`3`可在LCD和数码管观察。
+- F12运行返回菜单正常，不再清空NAND程序槽。
+- 赛车镜像在完全断电、重新下载bitstream后仍保持相同名称、2852字节大小、`6ab4f75f`镜像CRC及数据块2，断电后的整镜像VERIFY通过。
+- Studio源码启动、免Python便携包、含空格路径、C盘解压、首次WSL工具链安装及C镜像构建均已验证。
 
-静态门禁和Studio命令本身不会启动Vivado综合或生成比特流。
+稳定bitstream和LA32 Studio便携ZIP作为GitHub Release附件分发；Vivado生成物不纳入Git历史。
 
 ## Vivado 实现前门禁（2026-07-13）
 
@@ -227,7 +230,7 @@ source D:/CPU_DESIGN/final_cpu/run_vivado/capture_incremental_baseline.tcl
 这会把稳定综合和已布线DCP保存到`run_vivado/checkpoints/`。之后的小型RTL或
 外设修改可设置`USE_INCREMENTAL=1`；结构性修改必须回到非增量完整构建。
 
-当前已完成的实现前验证：
+当前已完成的实现与验收验证：
 
 - 目标封装数据库确认114个顶层端口均有PACKAGE_PIN和IOSTANDARD，且无重复管脚；
 - 独立PLL综合、优化、放置及DRC均为0 Error/0 Critical Warning，`REQP-1712`未复现；
@@ -239,13 +242,13 @@ source D:/CPU_DESIGN/final_cpu/run_vivado/capture_incremental_baseline.tcl
 - `PASS CONFREG NAND synchronous BRAM response`；
 - `PASS BOOT monitor BSS, key edge, frame 2 ACK and write protection`；
 - `PASS PIPELINE EXP16 cycles=332206 pc=1c02027c`；
-- 自研工具链10项单元/集成测试全部通过；
+- 自研工具链24项单元/集成测试全部通过；
 - `PASS GENERIC C runtime output prefix and EOT`；
 - Boot Monitor为11936字节，低于64 KiB boot区限制。
 
-未在命令行代替用户运行完整综合、布局布线或生成bitstream。新的实现结果仍需在
-GUI中确认routed timing summary的WNS/WHS均不小于0，并确认routed DRC没有
-Error/Critical Warning级的UCIO、NSTD、REQP或MDRV。
+稳定版已经完成完整综合、布局、布线、物理优化和bitstream生成。最终实现结果为
+WNS `+1.256 ns`、WHS `+0.052 ns`、TNS/THS均为0，routed DRC为0 Error；发布时
+应使用Release中带SHA256的稳定bitstream，不要混用旧工程目录中的生成文件。
 
 ## 自定义C程序的当前边界
 
