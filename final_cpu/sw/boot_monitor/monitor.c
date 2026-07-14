@@ -116,7 +116,13 @@ static void handle_frame(struct frame *f)
             if(result){MMIO32(MENU_STATUS)=0xff;reply(FT_NACK,f->sequence,6);}
             else {
                 update_menu();MMIO32(MENU_STATUS)=0;reply(FT_DONE,f->sequence,0);
-                if(receive_operation==FT_RUN_TEMP)image_load_and_start((void *)APP_START,expected_size,15);
+                if(receive_operation==FT_RUN_TEMP) {
+                    /* DONE must reach the host before the monitor is replaced
+                       by the downloaded application.  Otherwise a lost or
+                       partially queued reply can never be retransmitted. */
+                    uart_flush();
+                    image_load_and_start((void *)APP_START,expected_size,15);
+                }
             }
             break;
         case FT_REMOVE:

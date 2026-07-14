@@ -66,6 +66,15 @@ static inline void uart_putc(u8 value)
     MMIO32(UART_DATA) = value;
 }
 
+static inline void uart_flush(void)
+{
+    /* A write only queues the byte.  Before transferring control away from
+       the monitor, first observe queued/busy state and then wait until both
+       the FIFO and the physical transmitter are empty. */
+    while (!(uart_status_stable() & UART_TX_BUSY)) {}
+    while (uart_status_stable() & UART_TX_BUSY) {}
+}
+
 static inline u8 uart_getc(void)
 {
     /* The status register is returned through CONFREG's registered read
