@@ -30,6 +30,7 @@ class FrameType(IntEnum):
     DIAGNOSTICS = 14
     SCAN_DIRECTORIES = 15
     RUN_START = 16
+    UI_STATUS = 17
 
 
 @dataclass(frozen=True)

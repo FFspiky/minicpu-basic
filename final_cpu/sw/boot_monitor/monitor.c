@@ -20,11 +20,16 @@
 #define FT_DIAGNOSTICS 14
 #define FT_SCAN_DIRECTORIES 15
 #define FT_RUN_START 16
+#define FT_UI_STATUS 17
 
 struct frame { u8 type; u16 sequence,length; u8 payload[520]; };
 struct __attribute__((packed)) directory_slot_response {
     u32 magic,generation;u16 valid_mask,slot_index;
     struct program_slot slot;
+};
+struct __attribute__((packed)) ui_status_response {
+    u32 version,system_mode,active_slot,selected_slot;
+    u32 valid_mask,menu_status,dynamic_end_pc;
 };
 static u32 expected_size,receive_operation,receive_slot;
 static u16 previous_keys;
@@ -165,6 +170,18 @@ static void handle_frame(struct frame *f)
             if(f->length!=4){reply(FT_NACK,f->sequence,10);break;}
             s=nand_scan_directories(read_u16(f->payload),read_u16(f->payload+2));
             send_frame(FT_DONE,f->sequence,(const u8 *)s,sizeof(*s));break;
+        }
+        case FT_UI_STATUS:
+        {
+            static struct ui_status_response status;
+            if(f->length!=0){reply(FT_NACK,f->sequence,13);break;}
+            status.version=1;status.system_mode=MMIO32(SYSTEM_MODE);
+            status.active_slot=MMIO32(ACTIVE_SLOT);
+            status.selected_slot=MMIO32(MENU_SELECTED);
+            status.valid_mask=MMIO32(SLOT_VALID);
+            status.menu_status=MMIO32(MENU_STATUS);
+            status.dynamic_end_pc=MMIO32(DYNAMIC_END_PC);
+            send_frame(FT_DONE,f->sequence,(const u8 *)&status,sizeof(status));break;
         }
         default:reply(FT_NACK,f->sequence,0xff);break;
     }

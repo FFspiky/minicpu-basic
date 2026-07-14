@@ -6,7 +6,9 @@ from la32asm.assembler import Assembler, AssemblyError
 from la32asm.image import Image, ImageError, ImageType
 from la32asm.protocol import Downloader, Frame, FrameType
 from la32asm.cli import _connect_board, _send_break_reset
-from la32asm.studio import _boot_monitor, _probe_monitor, read_directory_slots
+from la32asm.studio import (
+    _boot_monitor, _probe_monitor, read_directory_slots, read_ui_status,
+)
 
 
 class AssemblerTests(unittest.TestCase):
@@ -160,6 +162,24 @@ class ProtocolTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "changed while"):
             read_directory_slots(ChangingDirectoryDownloader())
+
+    def test_studio_decodes_vga_logical_status(self):
+        class StatusDownloader:
+            def request(self, operation):
+                self.operation = operation
+                return Frame(
+                    FrameType.DONE, 4,
+                    struct.pack("<7I", 1, 0, 2, 1, 7, 0, 0x1C020000),
+                )
+
+        downloader = StatusDownloader()
+        status = read_ui_status(downloader)
+        self.assertEqual(downloader.operation, FrameType.UI_STATUS)
+        self.assertEqual(status["screen"], "PROGRAM MENU")
+        self.assertEqual(status["status_text"], "READY")
+        self.assertEqual(status["valid_mask"], "0x0007")
+        self.assertTrue(status["selected_valid"])
+        self.assertEqual(status["dynamic_end_pc"], "0x1c020000")
 
     def test_downloader_waits_for_ready_after_boot_text(self):
         class SerialBytes:

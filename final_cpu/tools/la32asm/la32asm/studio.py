@@ -409,6 +409,7 @@ def build_selftest() -> dict:
 
 DIRECTORY_HEADER = struct.Struct("<IIHH")
 DIRECTORY_SLOT = struct.Struct("<32sIIBBH7H")
+UI_STATUS = struct.Struct("<7I")
 
 
 def _parse_directory_row(slot: int, mask: int, payload: bytes, offset: int) -> dict:
@@ -454,6 +455,25 @@ def read_directory_slots(downloader: Downloader) -> list[dict]:
             returned_slot,mask,response.payload,DIRECTORY_HEADER.size
         ))
     return rows
+
+
+def read_ui_status(downloader: Downloader) -> dict:
+    response=downloader.request(FrameType.UI_STATUS)
+    if len(response.payload)!=UI_STATUS.size:
+        raise ValueError(
+            f"board UI status has {len(response.payload)} bytes; "
+            f"expected {UI_STATUS.size}"
+        )
+    version,mode,active,selected,valid,status,end_pc=UI_STATUS.unpack(response.payload)
+    screens=("PROGRAM MENU","RACING GAME","PIPELINE EXP16","GENERIC PROGRAM")
+    return {"version":version,"system_mode":mode,
+            "screen":screens[mode] if mode<len(screens) else "UNKNOWN",
+            "active_slot":active,"selected_slot":selected,
+            "selected_valid":selected<16 and bool(valid&(1<<selected)),
+            "valid_mask":f"0x{valid:04x}","menu_status":status,
+            "status_text":"ERROR" if status==0xff else
+                          ("READY" if status==0 else "LOADING"),
+            "dynamic_end_pc":f"0x{end_pc:08x}"}
 
 
 def create_app():
@@ -508,6 +528,13 @@ def create_app():
             return result
         except Exception as e:
             _progress_finish("读取目录失败",str(e));raise HTTPException(500,str(e))
+    @app.post("/api/status")
+    def ui_status(req:PortRequest):
+        try:
+            with SERIAL_LOCK,_serial(req.port) as port:
+                downloader=_boot_monitor(port)
+                return read_ui_status(downloader)
+        except Exception as e:raise HTTPException(500,str(e))
     @app.post("/api/install")
     def install(req:InstallRequest):
         image=Path(req.image or BUILD/"racing.la32img").read_bytes()
