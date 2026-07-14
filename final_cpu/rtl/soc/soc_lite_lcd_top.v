@@ -428,19 +428,10 @@ module soc_lite_lcd_top #(
 
     always @(*)
     begin
-        // A completed generic program parks in its runtime exit loop, so its
-        // last commit PC is intentionally static.  Replace every selected
-        // debug page with the application result until a warm reset returns
-        // to the menu or another program starts.
-        if (debug_system_mode_lcd == 2'd3 && menu_status_lcd == 8'd4)
-        begin
-            display_valid_next = 1'b1;
-            display_name_next  = "OUT: ";
-            display_value_next = num_data_lcd;
-        end
-        else
-        begin
-          case (display_number)
+        // Preserve the debug panel after a generic program completes.  The
+        // LCD module scans numbered cells, so OUT and IN must each occupy one
+        // explicit cell rather than being broadcast across the whole page.
+        case (display_number)
             6'd1:
             begin
                 display_valid_next = 1'b1;
@@ -549,14 +540,19 @@ module soc_lite_lcd_top #(
                 display_name_next  = "SLOT ";
                 display_value_next = {28'd0, debug_active_slot_lcd};
             end
+            6'd19:
+            begin
+                display_valid_next = 1'b1;
+                display_name_next  = "IN:  ";
+                display_value_next = {1'b0, lcd_input_value};
+            end
             default:
             begin
                 display_valid_next = 1'b0;
                 display_name_next  = 40'd0;
                 display_value_next = 32'd0;
             end
-          endcase
-        end
+        endcase
     end
 
 endmodule
