@@ -572,10 +572,7 @@ uart_fifo #(.DEPTH(16), .ADDR_WIDTH(4)) u_uart_rx_fifo (
 
 assign uart_tx_start = !uart_tx_fifo_empty && uart_tx_ready;
 
-// The largest monitor response is the 1082-byte framed NAND directory.
-// Buffer one whole response so firmware never has to poll the registered
-// TX_READY signal at the full-to-not-full boundary while streaming a frame.
-uart_fifo #(.DEPTH(2048), .ADDR_WIDTH(11)) u_uart_tx_fifo (
+uart_fifo #(.DEPTH(16), .ADDR_WIDTH(4)) u_uart_tx_fifo (
     .clk(clk), .resetn(resetn), .clear(1'b0),
     .clear_overflow(1'b0), .push_data(write_uart_data),
     .push(write_uart_valid), .pop(uart_tx_start),
