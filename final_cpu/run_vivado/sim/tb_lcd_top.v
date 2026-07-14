@@ -16,6 +16,16 @@ module tb_lcd_top;
     reg  [1:0]  btn_step;
     reg         ps2_clk;
     reg         ps2_data;
+    reg         uart_rx;
+    wire        uart_dtr;
+    wire        uart_tx;
+    tri  [7:0]  nand_io;
+    reg         nand_rb_n;
+    wire        nand_cle;
+    wire        nand_ale;
+    wire        nand_ce_n;
+    wire        nand_re_n;
+    wire        nand_we_n;
 
     wire        lcd_rst;
     wire        lcd_cs;
@@ -35,6 +45,7 @@ module tb_lcd_top;
     wire [3:0]  vga_b;
     integer     timeout;
     reg         initial_commit_toggle;
+    reg         test_passed = 1'b0;
 
     soc_lite_lcd_top #(
         .SIMULATION  (1'b1),
@@ -42,12 +53,21 @@ module tb_lcd_top;
     ) dut (
         .resetn      (resetn),
         .clk         (clk),
+        .uart_rx     (uart_rx),
+        .uart_dtr    (uart_dtr),
+        .uart_tx     (uart_tx),
+        .nand_io     (nand_io),
+        .nand_rb_n   (nand_rb_n),
+        .nand_cle    (nand_cle),
+        .nand_ale    (nand_ale),
+        .nand_ce_n   (nand_ce_n),
+        .nand_re_n   (nand_re_n),
+        .nand_we_n   (nand_we_n),
         .led         (led),
         .led_rg0     (led_rg0),
         .led_rg1     (led_rg1),
         .num_csn     (num_csn),
         .num_a_g     (num_a_g),
-        .num_data    (num_data),
         .switch      (switch),
         .btn_key_col (btn_key_col),
         .btn_key_row (btn_key_row),
@@ -86,6 +106,8 @@ module tb_lcd_top;
         btn_step    = 2'b11;
         ps2_clk     = 1'b1;
         ps2_data    = 1'b1;
+        uart_rx     = 1'b1;
+        nand_rb_n   = 1'b1;
 
         #200;
         initial_commit_toggle = dut.game_commit_toggle;
@@ -276,6 +298,69 @@ module tb_lcd_top;
         end
         release dut.display_number;
 
+        force dut.input_value = 32'h1234_abcd;
+        force dut.input_valid = 1'b1;
+        #40;
+        force dut.input_valid = 1'b0;
+        #40;
+        if (dut.lcd_status[30:0] !== 31'h1234_abcd ||
+            dut.lcd_status[31] !== 1'b1)
+        begin
+            $display("FAIL: LCD touch input did not reach CPU mailbox status=%h",
+                     dut.lcd_status);
+            $fatal;
+        end
+        force dut.input_valid = 1'b1;
+        #40;
+        force dut.input_valid = 1'b0;
+        #40;
+        if (dut.lcd_status[31] !== 1'b0)
+        begin
+            $display("FAIL: repeated LCD input did not toggle mailbox status=%h",
+                     dut.lcd_status);
+            $fatal;
+        end
+        release dut.input_valid;
+        release dut.input_value;
+
+        // Generic runtime completion must keep the original debug panel and
+        // expose exactly one output slot plus one latched touch-input slot.
+        force dut.debug_system_mode = 2'd3;
+        force dut.menu_status = 8'd4;
+        force dut.num_data = 32'h1234_abcd;
+        force dut.display_number = 6'd12;
+        #100;
+        if (dut.display_valid !== 1'b1 || dut.display_name !== "OUT: " ||
+            dut.display_value !== 32'h1234_abcd)
+        begin
+            $display("FAIL: LCD output slot name=%h value=%h",
+                     dut.display_name, dut.display_value);
+            $fatal;
+        end
+
+        force dut.display_number = 6'd19;
+        #100;
+        if (dut.display_valid !== 1'b1 || dut.display_name !== "IN:  " ||
+            dut.display_value !== 32'h1234_abcd)
+        begin
+            $display("FAIL: LCD input slot name=%h value=%h",
+                     dut.display_name, dut.display_value);
+            $fatal;
+        end
+
+        force dut.display_number = 6'd8;
+        #100;
+        if (dut.display_valid !== 1'b1 || dut.display_name !== "CMTPC")
+        begin
+            $display("FAIL: completed C program replaced debug panel name=%h valid=%b",
+                     dut.display_name, dut.display_valid);
+            $fatal;
+        end
+        release dut.debug_system_mode;
+        release dut.menu_status;
+        release dut.num_data;
+        release dut.display_number;
+
         if (lcd_cs !== 1'b1 || lcd_rd !== 1'b1 || lcd_bl_ctr !== 1'b1)
         begin
             $display("FAIL: LCD debug module pins are not in the expected state");
@@ -283,6 +368,7 @@ module tb_lcd_top;
         end
 
         $display("PASS: racing game CPU MMIO boot and LCD debug-page smoke test completed");
+        test_passed = 1'b1;
         #100;
         $finish;
     end

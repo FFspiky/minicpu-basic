@@ -3,20 +3,32 @@
 
 module soc_lite_lcd_top #(
     parameter SIMULATION  = 1'b0,
+    // Production menu launches must run to completion without requiring the
+    // educational STEP/RUN buttons.  Set this parameter back to 1 explicitly
+    // only for a dedicated pipeline single-step bitstream.
     parameter SINGLE_STEP = 1'b0,
-    parameter GAME_LCD    = 1'b0,
     parameter [31:0] END_PC = 32'h1c000100
 )
 (
     input  wire        resetn,
     input  wire        clk,
+    input  wire        uart_rx,
+    output wire        uart_dtr,
+    output wire        uart_tx,
+    inout  wire [7:0]  nand_io,
+    input  wire        nand_rb_n,
+    output wire        nand_cle,
+    output wire        nand_ale,
+    output wire        nand_ce_n,
+    output wire        nand_re_n,
+    output wire        nand_we_n,
+    output wire        nand_wp_n,
 
     output wire [15:0] led,
     output wire [1 :0] led_rg0,
     output wire [1 :0] led_rg1,
     output wire [7 :0] num_csn,
     output wire [6 :0] num_a_g,
-    output wire [31:0] num_data,
     input  wire [7 :0] switch,
     output wire [3 :0] btn_key_col,
     input  wire [3 :0] btn_key_row,
@@ -44,7 +56,26 @@ module soc_lite_lcd_top #(
     output wire        ct_rstn
 );
 
+    // K9F1G08 WP# is an active-low hardware write protect input.  The board
+    // routes it to T19, so keep it deasserted for erase/program operations.
+    assign nand_wp_n = 1'b1;
+
     wire lcd_clk;
+    wire clock_ready;
+    wire peripheral_async_resetn = resetn && clock_ready;
+    (* ASYNC_REG = "TRUE" *) reg [1:0] peripheral_reset_sync;
+    wire peripheral_resetn = peripheral_reset_sync[1];
+    wire [31:0] num_data;
+
+    // Assert immediately when the board reset or PLL lock is lost, then
+    // release synchronously in the 100 MHz peripheral domain.
+    always @(posedge lcd_clk or negedge peripheral_async_resetn)
+    begin
+        if (!peripheral_async_resetn)
+            peripheral_reset_sync <= 2'b00;
+        else
+            peripheral_reset_sync <= {peripheral_reset_sync[0], 1'b1};
+    end
 
     wire [31:0] debug_wb_pc;
     wire [3 :0] debug_wb_rf_we;
@@ -67,6 +98,11 @@ module soc_lite_lcd_top #(
     wire        debug_mode_run;
     wire        debug_run_active;
     wire        debug_run_done;
+    wire [1:0]  debug_system_mode;
+    wire [3:0]  debug_active_slot;
+    wire [3:0]  menu_selected_slot;
+    wire [15:0] menu_slot_valid;
+    wire [7:0]  menu_status;
 
     wire [31:0] game_car;
     wire [31:0] game_obs;
@@ -83,10 +119,33 @@ module soc_lite_lcd_top #(
     wire [127:0] leaderboard_scores;
     wire [159:0] leaderboard_bcd_scores;
     wire [3:0]   leaderboard_count;
+    reg f12_key_last;
+    wire f12_key_event = ps2_game_keys[8] && !f12_key_last;
+    reg [2:0] f12_request_stretch;
+    wire f12_reset_request = |f12_request_stretch;
+
+    // The keyboard decoder runs from the PLL's 100 MHz peripheral clock.
+    // Stretch F12 long enough for the 50 MHz CPU domain to synchronize it.
+    always @(posedge lcd_clk or negedge peripheral_resetn)
+    begin
+        if (!peripheral_resetn)
+        begin
+            f12_key_last <= 1'b0;
+            f12_request_stretch <= 3'd0;
+        end
+        else
+        begin
+            f12_key_last <= ps2_game_keys[8];
+            if (f12_key_event)
+                f12_request_stretch <= 3'd7;
+            else if (f12_request_stretch != 0)
+                f12_request_stretch <= f12_request_stretch - 1'b1;
+        end
+    end
 
     ps2_game_keyboard u_ps2_game_keyboard (
-        .clk            (clk),
-        .resetn         (resetn),
+        .clk            (lcd_clk),
+        .resetn         (peripheral_resetn),
         .ps2_clk        (ps2_clk),
         .ps2_data       (ps2_data),
         .game_keys      (ps2_game_keys),
@@ -96,7 +155,7 @@ module soc_lite_lcd_top #(
 
     game_leaderboard u_game_leaderboard (
         .clk                (lcd_clk),
-        .resetn             (resetn),
+        .resetn             (peripheral_resetn),
         .game_flags         (game_flags),
         .game_score         (game_score),
         .game_score_bcd     (num_data),
@@ -106,9 +165,14 @@ module soc_lite_lcd_top #(
         .score_count        (leaderboard_count)
     );
 
+    wire game_vga_hsync, game_vga_vsync;
+    wire [3:0] game_vga_r, game_vga_g, game_vga_b;
+    wire menu_vga_hsync, menu_vga_vsync;
+    wire [3:0] menu_vga_r, menu_vga_g, menu_vga_b;
+
     vga_game_top u_vga_game_top (
         .clk                (lcd_clk),
-        .resetn             (resetn),
+        .resetn             (peripheral_resetn),
         .game_car           (game_car),
         .game_obs           (game_obs),
         .game_obs1          (game_obs1),
@@ -120,12 +184,28 @@ module soc_lite_lcd_top #(
         .current_score_bcd  (num_data[19:0]),
         .leaderboard_bcd_scores (leaderboard_bcd_scores),
         .leaderboard_count  (leaderboard_count),
-        .vga_hsync          (vga_hsync),
-        .vga_vsync          (vga_vsync),
-        .vga_r              (vga_r),
-        .vga_g              (vga_g),
-        .vga_b              (vga_b)
+        .vga_hsync          (game_vga_hsync),
+        .vga_vsync          (game_vga_vsync),
+        .vga_r              (game_vga_r),
+        .vga_g              (game_vga_g),
+        .vga_b              (game_vga_b)
     );
+
+    vga_program_menu u_vga_program_menu (
+        .clk(lcd_clk), .resetn(peripheral_resetn),
+        .selected_slot(menu_selected_slot), .slot_valid(menu_slot_valid),
+        .status(menu_status), .system_mode(debug_system_mode),
+        .led_rg0(led_rg0), .led_rg1(led_rg1),
+        .vga_hsync(menu_vga_hsync), .vga_vsync(menu_vga_vsync),
+        .vga_r(menu_vga_r), .vga_g(menu_vga_g), .vga_b(menu_vga_b)
+    );
+
+    wire game_vga_selected = debug_system_mode == 2'd1;
+    assign vga_hsync = game_vga_selected ? game_vga_hsync : menu_vga_hsync;
+    assign vga_vsync = game_vga_selected ? game_vga_vsync : menu_vga_vsync;
+    assign vga_r = game_vga_selected ? game_vga_r : menu_vga_r;
+    assign vga_g = game_vga_selected ? game_vga_g : menu_vga_g;
+    assign vga_b = game_vga_selected ? game_vga_b : menu_vga_b;
 
     soc_lite_top #(
         .SIMULATION  (SIMULATION),
@@ -134,6 +214,17 @@ module soc_lite_lcd_top #(
     ) u_soc (
         .resetn              (resetn),
         .clk                 (clk),
+        .uart_rx             (uart_rx),
+        .uart_dtr            (uart_dtr),
+        .warm_reset_request  (f12_reset_request),
+        .uart_tx             (uart_tx),
+        .nand_io             (nand_io),
+        .nand_rb_n           (nand_rb_n),
+        .nand_cle            (nand_cle),
+        .nand_ale            (nand_ale),
+        .nand_ce_n           (nand_ce_n),
+        .nand_re_n           (nand_re_n),
+        .nand_we_n           (nand_we_n),
 
         .led                 (led),
         .led_rg0             (led_rg0),
@@ -147,6 +238,7 @@ module soc_lite_lcd_top #(
         .btn_step            (btn_step),
         .external_key_state  (ps2_game_keys),
         .lcd_clk             (lcd_clk),
+        .clock_ready         (clock_ready),
 
         .game_car            (game_car),
         .game_obs            (game_obs),
@@ -178,7 +270,12 @@ module soc_lite_lcd_top #(
         .debug_last_wb_wdata (debug_last_wb_wdata),
         .debug_mode_run      (debug_mode_run),
         .debug_run_active    (debug_run_active),
-        .debug_run_done      (debug_run_done)
+        .debug_run_done      (debug_run_done),
+        .debug_system_mode   (debug_system_mode),
+        .debug_active_slot   (debug_active_slot),
+        .menu_selected_slot (menu_selected_slot),
+        .menu_slot_valid    (menu_slot_valid),
+        .menu_status        (menu_status)
     );
 
     reg         display_valid;
@@ -205,6 +302,9 @@ module soc_lite_lcd_top #(
     reg         debug_mode_run_lcd;
     reg         debug_run_active_lcd;
     reg         debug_run_done_lcd;
+    reg  [1 :0] debug_system_mode_lcd;
+    reg  [3 :0] debug_active_slot_lcd;
+    reg  [7 :0] menu_status_lcd;
     reg  [31:0] num_data_lcd;
     reg  [7 :0] switch_lcd;
 
@@ -212,49 +312,18 @@ module soc_lite_lcd_top #(
     reg  [39:0] display_name_next;
     reg  [31:0] display_value_next;
 
-    generate if (GAME_LCD)
-    begin: game_lcd
-        assign display_number = 6'd0;
-        assign input_valid    = 1'b0;
-        assign input_value    = 32'd0;
+    reg         lcd_input_toggle;
+    reg         lcd_input_valid_last;
+    reg  [30:0] lcd_input_value;
 
-        lcd_game_top #(
-            .SIMULATION       (SIMULATION),
-            .LEADERBOARD_MODE (1)
-        ) u_lcd_game_top (
-            .clk                (lcd_clk),
-            .resetn             (resetn),
-            .game_car           (game_car),
-            .game_obs           (game_obs),
-            .game_obs1          (game_obs1),
-            .game_obs2          (game_obs2),
-            .game_bonus         (game_bonus),
-            .game_flags         (game_flags),
-            .game_score         (game_score),
-            .game_commit_toggle (game_commit_toggle),
-            .leaderboard_bcd_scores (leaderboard_bcd_scores),
-            .leaderboard_count  (leaderboard_count),
-            .lcd_status         (lcd_status),
-            .lcd_rst            (lcd_rst),
-            .lcd_cs             (lcd_cs),
-            .lcd_rs             (lcd_rs),
-            .lcd_wr             (lcd_wr),
-            .lcd_rd             (lcd_rd),
-            .lcd_data_io        (lcd_data_io),
-            .lcd_bl_ctr         (lcd_bl_ctr),
-            .ct_int             (ct_int),
-            .ct_sda             (ct_sda),
-            .ct_scl             (ct_scl),
-            .ct_rstn            (ct_rstn)
-        );
-    end
-    else
-    begin: debug_lcd
-        assign lcd_status = 32'd0;
+    // The LCD IP emits a one-cycle pulse after the user confirms a numeric
+    // touch input.  Latch it into a stable mailbox for the CPU clock domain;
+    // bit 31 toggles for each new value, including repeated equal values.
+    assign lcd_status = {lcd_input_toggle, lcd_input_value};
 
-        lcd_module u_lcd_module(
+    lcd_module u_lcd_module(
             .clk            (lcd_clk),
-            .resetn         (resetn),
+            .resetn         (peripheral_resetn),
 
             .display_valid  (display_valid),
             .display_name   (display_name),
@@ -276,14 +345,15 @@ module soc_lite_lcd_top #(
             .ct_sda         (ct_sda),
             .ct_scl         (ct_scl),
             .ct_rstn        (ct_rstn)
-        );
-    end
-    endgenerate
+    );
 
     always @(posedge lcd_clk)
     begin
-        if (!resetn)
+        if (!peripheral_resetn)
         begin
+            lcd_input_toggle         <= 1'b0;
+            lcd_input_valid_last     <= 1'b0;
+            lcd_input_value          <= 31'd0;
             debug_wb_pc_lcd          <= 32'd0;
             debug_inst_lcd           <= 32'd0;
             debug_step_count_lcd     <= 32'd0;
@@ -300,6 +370,9 @@ module soc_lite_lcd_top #(
             debug_mode_run_lcd       <= 1'b0;
             debug_run_active_lcd     <= 1'b0;
             debug_run_done_lcd       <= 1'b0;
+            debug_system_mode_lcd    <= 2'd0;
+            debug_active_slot_lcd    <= 4'd0;
+            menu_status_lcd          <= 8'd0;
             num_data_lcd             <= 32'd0;
             switch_lcd               <= 8'd0;
             display_valid            <= 1'b0;
@@ -308,6 +381,12 @@ module soc_lite_lcd_top #(
         end
         else
         begin
+            lcd_input_valid_last <= input_valid;
+            if (input_valid && !lcd_input_valid_last)
+            begin
+                lcd_input_toggle <= ~lcd_input_toggle;
+                lcd_input_value  <= input_value[30:0];
+            end
             debug_wb_pc_lcd          <= debug_wb_pc;
             debug_inst_lcd           <= debug_inst;
             debug_step_count_lcd     <= debug_step_count;
@@ -324,6 +403,9 @@ module soc_lite_lcd_top #(
             debug_mode_run_lcd       <= debug_mode_run;
             debug_run_active_lcd     <= debug_run_active;
             debug_run_done_lcd       <= debug_run_done;
+            debug_system_mode_lcd    <= debug_system_mode;
+            debug_active_slot_lcd    <= debug_active_slot;
+            menu_status_lcd          <= menu_status;
             num_data_lcd             <= num_data;
             switch_lcd               <= switch;
             display_valid            <= display_valid_next;
@@ -346,6 +428,9 @@ module soc_lite_lcd_top #(
 
     always @(*)
     begin
+        // Preserve the debug panel after a generic program completes.  The
+        // LCD module scans numbered cells, so OUT and IN must each occupy one
+        // explicit cell rather than being broadcast across the whole page.
         case (display_number)
             6'd1:
             begin
@@ -416,7 +501,7 @@ module soc_lite_lcd_top #(
             6'd12:
             begin
                 display_valid_next = 1'b1;
-                display_name_next  = "NUM  ";
+                display_name_next  = "OUT: ";
                 display_value_next = num_data_lcd;
             end
             6'd13:
@@ -442,6 +527,24 @@ module soc_lite_lcd_top #(
                 display_valid_next = 1'b1;
                 display_name_next  = "SW   ";
                 display_value_next = {24'd0, switch_lcd};
+            end
+            6'd17:
+            begin
+                display_valid_next = 1'b1;
+                display_name_next  = "SYS  ";
+                display_value_next = {30'd0, debug_system_mode_lcd};
+            end
+            6'd18:
+            begin
+                display_valid_next = 1'b1;
+                display_name_next  = "SLOT ";
+                display_value_next = {28'd0, debug_active_slot_lcd};
+            end
+            6'd19:
+            begin
+                display_valid_next = 1'b1;
+                display_name_next  = "IN:  ";
+                display_value_next = {1'b0, lcd_input_value};
             end
             default:
             begin

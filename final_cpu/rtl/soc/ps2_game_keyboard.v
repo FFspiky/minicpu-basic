@@ -10,8 +10,8 @@ module ps2_game_keyboard(
     output reg  [7:0]  last_scan_code,
     output reg         scan_valid
 );
-    reg [2:0] ps2_clk_sync;
-    reg [1:0] ps2_data_sync;
+    (* ASYNC_REG = "TRUE" *) reg [2:0] ps2_clk_sync;
+    (* ASYNC_REG = "TRUE" *) reg [1:0] ps2_data_sync;
     reg [3:0] bit_count;
     reg [7:0] scan_shift;
     reg       parity_xor;
@@ -104,6 +104,18 @@ module ps2_game_keyboard(
                                 else if (scan_shift == 8'h29)
                                 begin
                                     game_keys[12] <= ~released; // Space: soft restart
+                                end
+                                else if (scan_shift == 8'h5a)
+                                begin
+                                    game_keys[11] <= ~released; // Enter: menu select
+                                end
+                                else if (scan_shift == 8'h2d)
+                                begin
+                                    game_keys[9] <= ~released;  // R: menu verify
+                                end
+                                else if (scan_shift == 8'h07)
+                                begin
+                                    game_keys[8] <= ~released;  // F12: return to monitor
                                 end
                                 extended <= 1'b0;
                                 released <= 1'b0;

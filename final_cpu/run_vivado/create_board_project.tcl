@@ -113,11 +113,17 @@ set rtl_files [concat \
     [glob -nocomplain ../rtl/lcd/*.v]]
 add_new_design_files $rtl_files
 
-set ip_xci_files [glob -nocomplain ../rtl/xilinx_ip/*/*.xci]
+set ip_xci_files [list]
+foreach candidate [glob -nocomplain ../rtl/xilinx_ip/*/*.xci] {
+    if {[file tail $candidate] ne "clk_pll.xci"} {
+        lappend ip_xci_files $candidate
+    }
+}
 add_new_quiet_files $ip_xci_files
-add_new_design_files [glob -nocomplain ../rtl/xilinx_ip/clk_pll/*.v]
 
-sync_design_directory ../rtl/cpu *.v
+# Keep the refactored pipeline's shared macro definitions in the managed
+# source set as well as the Verilog modules.
+sync_design_directory ../rtl/cpu *.v*
 
 set board_sim_files [glob -nocomplain ./sim/*.v]
 if {[llength $board_sim_files] > 0} {
@@ -135,8 +141,6 @@ foreach ip_xci $ip_xci_files {
 
 set need_ip_generate $clean_project
 foreach required_ip_file {
-    ../rtl/xilinx_ip/clk_pll/clk_pll.v
-    ../rtl/xilinx_ip/clk_pll/clk_pll_clk_wiz.v
     ../rtl/xilinx_ip/data_ram/sim/data_ram.v
     ../rtl/xilinx_ip/data_ram/synth/data_ram.vhd
     ../rtl/xilinx_ip/inst_ram/sim/inst_ram.v
@@ -169,3 +173,7 @@ update_compile_order -fileset sim_1
 # writes the updated source-set to the existing .xpr without creating a copy.
 close_project
 open_project $project_file
+
+# Keep command-line and GUI-created projects on the same timing-oriented
+# implementation strategy.  This changes physical implementation only.
+source [file join $script_dir configure_timing_strategy.tcl]

@@ -1,0 +1,177 @@
+#include <stdarg.h>
+
+typedef unsigned int u32;
+
+#define UART_DATA   (*(volatile u32 *)0xbfafff10u)
+#define UART_STATUS (*(volatile u32 *)0xbfafff14u)
+#define UART_TX_READY (1u << 8)
+#define OUTPUT_DATA (*(volatile u32 *)0xbfaff050u)
+#define PROGRAM_STATUS (*(volatile u32 *)0xbfafff64u)
+#define LCD_INPUT (*(volatile u32 *)0xbfaf9060u)
+
+static u32 last_output_value;
+static u32 last_input_toggle;
+static int input_initialized;
+
+void lcd_output(int value)
+{
+    last_output_value = (u32)value;
+    OUTPUT_DATA = last_output_value;
+}
+
+static u32 lcd_input_stable(void)
+{
+    (void)LCD_INPUT;
+    return LCD_INPUT;
+}
+
+int lcd_read_int(void)
+{
+    u32 mailbox;
+    if (!input_initialized) {
+        last_input_toggle = lcd_input_stable() >> 31;
+        input_initialized = 1;
+    }
+    do {
+        mailbox = lcd_input_stable();
+    } while ((mailbox >> 31) == last_input_toggle);
+    last_input_toggle = mailbox >> 31;
+    lcd_output((int)(mailbox & 0x7fffffffu));
+    return (int)(mailbox & 0x7fffffffu);
+}
+
+int scanf(const char *format, ...)
+{
+    va_list arguments;
+    int *destination;
+    if (!format || format[0] != '%' ||
+        (format[1] != 'd' && format[1] != 'u' && format[1] != 'x'))
+        return 0;
+    va_start(arguments, format);
+    destination = va_arg(arguments, int *);
+    va_end(arguments);
+    if (!destination) return 0;
+    *destination = lcd_read_int();
+    return 1;
+}
+
+static u32 uart_status_stable(void)
+{
+    (void)UART_STATUS;
+    return UART_STATUS;
+}
+
+static void uart_putc(char value)
+{
+    /* TX_READY reports room in the hardware FIFO.  Waiting for a BUSY edge
+       after each store can miss a registered transition and strand the
+       application, so enqueue and let the FIFO preserve byte order. */
+    while (!(uart_status_stable() & UART_TX_READY)) {}
+    UART_DATA = (unsigned char)value;
+}
+
+int putchar(int value)
+{
+    if (value == '\n') uart_putc('\r');
+    uart_putc((char)value);
+    return value;
+}
+
+int puts(const char *text)
+{
+    while (*text) putchar(*text++);
+    putchar('\n');
+    return 0;
+}
+
+static int print_unsigned(u32 value, u32 radix, int uppercase)
+{
+    char buffer[32];
+    int count = 0;
+    int written = 0;
+    const char *digits = uppercase ? "0123456789ABCDEF" : "0123456789abcdef";
+
+    do {
+        buffer[count++] = digits[value % radix];
+        value /= radix;
+    } while (value);
+    while (count) {
+        putchar(buffer[--count]);
+        written++;
+    }
+    return written;
+}
+
+int print_int(int value)
+{
+    int written = 0;
+    u32 magnitude;
+    if (value < 0) {
+        putchar('-');
+        written++;
+        magnitude = 0u - (u32)value;
+    } else {
+        magnitude = (u32)value;
+    }
+    return written + print_unsigned(magnitude, 10u, 0);
+}
+
+int printf(const char *format, ...)
+{
+    va_list arguments;
+    int written = 0;
+    va_start(arguments, format);
+    while (*format) {
+        if (*format != '%') {
+            putchar(*format++);
+            written++;
+            continue;
+        }
+        format++;
+        if (*format == '%') {
+            putchar('%');
+            written++;
+        } else if (*format == 'd') {
+            int value = va_arg(arguments, int);
+            lcd_output(value);
+            int count = print_int(value);
+            written += count;
+        } else if (*format == 'u') {
+            u32 value = va_arg(arguments, u32);
+            lcd_output((int)value);
+            written += print_unsigned(value, 10u, 0);
+        } else if (*format == 'x' || *format == 'X') {
+            int upper = (*format == 'X');
+            u32 value = va_arg(arguments, u32);
+            lcd_output((int)value);
+            written += print_unsigned(value, 16u, upper);
+        } else if (*format == 'c') {
+            putchar(va_arg(arguments, int));
+            written++;
+        } else if (*format == 's') {
+            const char *text = va_arg(arguments, const char *);
+            while (*text) {
+                putchar(*text++);
+                written++;
+            }
+        } else {
+            putchar('%');
+            putchar(*format);
+            written += 2;
+        }
+        if (*format) format++;
+    }
+    va_end(arguments);
+    return written;
+}
+
+void la32_program_exit(int status)
+{
+    u32 saved_output = last_output_value;
+    printf("\n[program exited: %d]\n", status);
+    last_output_value = saved_output;
+    OUTPUT_DATA = saved_output;
+    PROGRAM_STATUS = 4u;
+    uart_putc(4);
+    for (;;) {}
+}

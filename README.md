@@ -2,6 +2,17 @@
 
 本仓库基于 Vivado 2019.2。当前主线独立 CPU 工程是 `final_cpu/`，`cdp_ede_pipeline/` 继续保留为后续参考和验证环境。
 
+## 稳定演示版本（2026-07-14）
+
+当前稳定版本位于`codex/nand-debug-20260714`分支。Windows电脑克隆仓库后，可在
+仓库根目录双击`LA32-Studio.cmd`启动；未安装Python的电脑应下载GitHub Release
+中的`LA32-Studio-Portable-*.zip`。稳定bitstream也作为Release附件提供，不提交
+Vivado生成目录或`.bit`文件到Git历史。
+
+本版本已完成开发板验收：LCD保留原CPU调试面板且只有一个`OUT`和一个`IN`，
+F12可返回菜单；赛车镜像经过完全断电、重新下载bitstream后仍保留在NAND，目录
+元数据和整镜像CRC校验均通过。详细上传边界和发布步骤见`GITHUB_RELEASE.md`。
+
 - `final_cpu/`：EXP23 流水线 CPU + BRAM SoC + LCD 工程入口，后续外设和小游戏扩展从这里继续。
 - `cdp_ede_local-master/`：单周期 CPU 环境
 - `cdp_ede_pipeline/`：五级流水线 CPU 环境

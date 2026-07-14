@@ -9,13 +9,6 @@ set_property verilog_define {} [get_filesets sim_1]
 update_compile_order -fileset sources_1
 update_compile_order -fileset sim_1
 
-if {[llength [get_runs -quiet impl_1]] > 0} {
-    reset_run impl_1
-}
-if {[llength [get_runs -quiet synth_1]] > 0} {
-    reset_run synth_1
-}
-
 close_project
-puts "PASS: final_cpu_lcd GUI project refreshed; synth_1 and impl_1 are reset"
+puts "PASS: final_cpu_lcd GUI project refreshed; existing run products preserved"
 quit

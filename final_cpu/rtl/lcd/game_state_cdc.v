@@ -47,9 +47,9 @@ module game_state_cdc(
     localparam [1:0] CAPTURE_SAMPLE = 2'd2;
     localparam [1:0] CAPTURE_VERIFY = 2'd3;
 
-    reg commit_sync0;
-    reg commit_sync1;
-    reg commit_sync2;
+    (* ASYNC_REG = "TRUE" *) reg commit_sync0;
+    (* ASYNC_REG = "TRUE" *) reg commit_sync1;
+    (* ASYNC_REG = "TRUE" *) reg commit_sync2;
     reg [1:0] capture_state;
     reg [1:0] settle_cnt;
     reg [31:0] sample_car;

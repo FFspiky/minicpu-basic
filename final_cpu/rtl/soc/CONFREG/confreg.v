@@ -77,12 +77,23 @@ THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 `define IO_SIMU_ADDR      16'hff00  //32'hbfaf_ff00
 `define VIRTUAL_UART_ADDR 16'hff10  //32'hbfaf_ff10
+`define UART_STATUS_ADDR  16'hff14  //32'hbfaf_ff14
+`define UART_CTRL_ADDR    16'hff18  //32'hbfaf_ff18
 `define SIMU_FLAG_ADDR    16'hff20  //32'hbfaf_ff20
 `define OPEN_TRACE_ADDR   16'hff30  //32'hbfaf_ff30
 `define NUM_MONITOR_ADDR  16'hff40  //32'hbfaf_ff40
+`define SYSTEM_MODE_ADDR  16'hff50  //32'hbfaf_ff50
+`define DYNAMIC_END_ADDR  16'hff54  //32'hbfaf_ff54
+`define ACTIVE_SLOT_ADDR  16'hff58  //32'hbfaf_ff58
+`define MENU_SELECT_ADDR  16'hff5c  //32'hbfaf_ff5c
+`define SLOT_VALID_ADDR   16'hff60  //32'hbfaf_ff60
+`define MENU_STATUS_ADDR  16'hff64  //32'hbfaf_ff64
 
 module confreg
-#(parameter SIMULATION=1'b0)
+#(
+    parameter SIMULATION=1'b0,
+    parameter integer CPU_CLOCK_HZ=50_000_000
+)
 (
     input  wire        clk,
     input  wire        timer_clk,
@@ -114,7 +125,22 @@ module confreg
     output wire [3 :0] btn_key_col,
     input  wire [3 :0] btn_key_row,
     input  wire [1 :0] btn_step,
-    input  wire [15:0] external_key_state
+    input  wire [15:0] external_key_state,
+    input  wire        uart_rx_i,
+    output wire        uart_tx_o,
+    output wire [1:0]  system_mode,
+    output wire [31:0] dynamic_end_pc,
+    output wire [3:0]  active_slot,
+    output wire [3:0]  menu_selected_slot,
+    output wire [15:0] menu_slot_valid,
+    output wire [7:0]  menu_status,
+    inout  wire [7:0]  nand_io,
+    input  wire        nand_rb_n,
+    output wire        nand_cle,
+    output wire        nand_ale,
+    output wire        nand_ce_n,
+    output wire        nand_re_n,
+    output wire        nand_we_n
 );
     reg  [31:0] cr0;
     reg  [31:0] cr1;
@@ -150,6 +176,45 @@ module confreg
     reg  [7 :0] virtual_uart_data;
     reg         open_trace;
     reg         num_monitor;
+    reg  [31:0] uart_ctrl;
+    reg  [1:0]  system_mode_r;
+    reg  [31:0] dynamic_end_pc_r;
+    reg  [3:0]  active_slot_r;
+    reg  [3:0]  menu_selected_slot_r;
+    reg  [15:0] menu_slot_valid_r;
+    reg  [7:0]  menu_status_r;
+wire [7:0] uart_rx_data;
+wire       uart_rx_valid;
+wire       uart_rx_frame_error;
+wire [7:0] uart_rx_front;
+wire       uart_rx_empty;
+wire       uart_rx_full;
+wire       uart_rx_overflow;
+wire [7:0] uart_tx_front;
+wire       uart_tx_fifo_empty;
+wire       uart_tx_fifo_full;
+wire       uart_tx_fifo_overflow;
+wire       uart_tx_start;
+    wire       uart_tx_ready;
+    wire       uart_tx_busy;
+    wire [31:0] uart_status;
+
+    assign system_mode   = system_mode_r;
+    assign dynamic_end_pc = dynamic_end_pc_r;
+    assign active_slot   = active_slot_r;
+    assign menu_selected_slot = menu_selected_slot_r;
+    assign menu_slot_valid = menu_slot_valid_r;
+    assign menu_status = menu_status_r;
+    wire nand_mmio_select = (conf_addr[15:8] == 8'hb0) || (conf_addr[15:12] == 4'hc);
+    wire [31:0] nand_mmio_rdata;
+
+    nand_raw_controller u_nand_controller(
+        .clk(clk), .resetn(resetn), .mmio_en(conf_en && nand_mmio_select),
+        .mmio_we(conf_we), .mmio_addr(conf_addr[15:0]), .mmio_wdata(conf_wdata),
+        .mmio_rdata(nand_mmio_rdata), .nand_io(nand_io), .nand_rb_n(nand_rb_n),
+        .nand_cle(nand_cle), .nand_ale(nand_ale), .nand_ce_n(nand_ce_n),
+        .nand_re_n(nand_re_n), .nand_we_n(nand_we_n)
+    );
 
     assign game_car           = game_car_data;
     assign game_obs           = game_obs_data;
@@ -160,18 +225,31 @@ module confreg
     assign game_score         = game_score_data;
     assign game_commit_toggle = game_commit_toggle_r;
 
-    // read data has one cycle delay
+    // Read data has one cycle delay.  NAND page-buffer storage is a
+    // synchronous BRAM, so its controller produces the word one cycle after
+    // the request.  Select that response directly instead of registering it
+    // for a second cycle here.
     reg [31:0] conf_rdata_reg;
-    assign conf_rdata = conf_rdata_reg;
+    reg        nand_buffer_read_pending;
+    wire       nand_buffer_read_request = conf_en && !(|conf_we) &&
+                                             nand_mmio_select &&
+                                             conf_addr[15:12]==4'hc &&
+                                             conf_addr[11:2]<10'd528;
+    assign conf_rdata = nand_buffer_read_pending ? nand_mmio_rdata :
+                                                   conf_rdata_reg;
     always @(posedge clk)
     begin
         if(~resetn)
         begin
             conf_rdata_reg <= 32'd0;
+            nand_buffer_read_pending <= 1'b0;
         end
-        else if (conf_en)
+        else
         begin
-            case (conf_addr[15:0])
+            nand_buffer_read_pending <= nand_buffer_read_request;
+            if(conf_en)
+            begin
+              case (conf_addr[15:0])
                 `CR0_ADDR      : conf_rdata_reg <= cr0          ;
                 `CR1_ADDR      : conf_rdata_reg <= cr1          ;
                 `CR2_ADDR      : conf_rdata_reg <= cr2          ;
@@ -200,11 +278,20 @@ module confreg
                 `TIMER_ADDR    : conf_rdata_reg <= timer_r2     ;
                 `SIMU_FLAG_ADDR: conf_rdata_reg <= simu_flag    ;
                 `IO_SIMU_ADDR  : conf_rdata_reg <= io_simu      ;
-                `VIRTUAL_UART_ADDR : conf_rdata_reg <= {24'd0,virtual_uart_data} ;
+                `VIRTUAL_UART_ADDR : conf_rdata_reg <= {24'd0,uart_rx_front} ;
+                `UART_STATUS_ADDR  : conf_rdata_reg <= uart_status;
+                `UART_CTRL_ADDR    : conf_rdata_reg <= uart_ctrl;
                 `OPEN_TRACE_ADDR : conf_rdata_reg <= {31'd0,open_trace} ;
                 `NUM_MONITOR_ADDR: conf_rdata_reg <= {31'd0,num_monitor} ;
-                default        : conf_rdata_reg <= 32'd0;
-            endcase
+                `SYSTEM_MODE_ADDR: conf_rdata_reg <= {30'd0,system_mode_r};
+                `DYNAMIC_END_ADDR: conf_rdata_reg <= dynamic_end_pc_r;
+                `ACTIVE_SLOT_ADDR: conf_rdata_reg <= {28'd0,active_slot_r};
+                `MENU_SELECT_ADDR: conf_rdata_reg <= {28'd0,menu_selected_slot_r};
+                `SLOT_VALID_ADDR : conf_rdata_reg <= {16'd0,menu_slot_valid_r};
+                `MENU_STATUS_ADDR: conf_rdata_reg <= {24'd0,menu_status_r};
+                  default        : conf_rdata_reg <= nand_mmio_select ? nand_mmio_rdata : 32'd0;
+              endcase
+            end
         end
     end
 
@@ -228,6 +315,43 @@ wire write_game_bonus  = conf_write & (conf_addr[15:0]==`GAME_BONUS_ADDR);
 wire write_game_flags  = conf_write & (conf_addr[15:0]==`GAME_FLAGS_ADDR);
 wire write_game_score  = conf_write & (conf_addr[15:0]==`GAME_SCORE_ADDR);
 wire write_game_commit = conf_write & (conf_addr[15:0]==`GAME_COMMIT_ADDR);
+wire write_system_mode = conf_write & (conf_addr[15:0]==`SYSTEM_MODE_ADDR);
+wire write_dynamic_end = conf_write & (conf_addr[15:0]==`DYNAMIC_END_ADDR);
+wire write_active_slot = conf_write & (conf_addr[15:0]==`ACTIVE_SLOT_ADDR);
+wire write_menu_select = conf_write & (conf_addr[15:0]==`MENU_SELECT_ADDR);
+wire write_slot_valid = conf_write & (conf_addr[15:0]==`SLOT_VALID_ADDR);
+wire write_menu_status = conf_write & (conf_addr[15:0]==`MENU_STATUS_ADDR);
+
+always @(posedge clk)
+begin
+    if (!resetn)
+    begin
+        system_mode_r   <= 2'd0;
+        dynamic_end_pc_r <= 32'd0;
+        active_slot_r   <= 4'd0;
+        menu_selected_slot_r <= 4'd0;
+        menu_slot_valid_r <= 16'd0;
+        menu_status_r <= 8'd0;
+    end
+    else
+    begin
+        // Leaving MENU is a one-way transition.  Only a warm/physical reset
+        // may restore MENU, so application software cannot remove boot-window
+        // write protection by writing SYSTEM_MODE.
+        if (write_system_mode && system_mode_r == 2'd0 && conf_wdata[1:0] != 2'd0)
+            system_mode_r <= conf_wdata[1:0];
+        if (write_dynamic_end)
+            dynamic_end_pc_r <= conf_wdata;
+        if (write_active_slot)
+            active_slot_r <= conf_wdata[3:0];
+        if (write_menu_select)
+            menu_selected_slot_r <= conf_wdata[3:0];
+        if (write_slot_valid)
+            menu_slot_valid_r <= conf_wdata[15:0];
+        if (write_menu_status)
+            menu_status_r <= conf_wdata[7:0];
+    end
+end
 always @(posedge clk)
 begin
     cr0 <= !resetn    ? 32'd0      :
@@ -419,7 +543,51 @@ end
 //---------------------------{virtual uart}begin-------------------------//
 wire [7:0] write_uart_data;
 wire write_uart_valid  = conf_write & (conf_addr[15:0]==`VIRTUAL_UART_ADDR);
+wire read_uart_valid = conf_en & !(|conf_we) & (conf_addr[15:0]==`VIRTUAL_UART_ADDR);
+wire write_uart_status = conf_write & (conf_addr[15:0]==`UART_STATUS_ADDR);
+wire write_uart_ctrl = conf_write & (conf_addr[15:0]==`UART_CTRL_ADDR);
 assign write_uart_data = conf_wdata[7:0];
+
+wire       uart_fifo_clear = write_uart_ctrl & conf_wdata[8];
+wire       uart_overflow_clear = write_uart_status & conf_wdata[1];
+wire       uart_frame_error_clear = write_uart_status & conf_wdata[10];
+assign uart_status = {21'd0, uart_rx_frame_error,
+                      uart_tx_busy || !uart_tx_fifo_empty,
+                      !uart_tx_fifo_full, 6'd0,
+                      uart_rx_overflow, !uart_rx_empty};
+
+uart_rx #(.CLOCK_HZ(CPU_CLOCK_HZ), .BAUD(115_200)) u_uart_rx (
+    .clk(clk), .resetn(resetn), .enable(uart_ctrl[0]),
+    .clear_error(uart_frame_error_clear), .rx(uart_rx_i),
+    .data(uart_rx_data), .valid(uart_rx_valid), .frame_error(uart_rx_frame_error)
+);
+
+// One maximum DATA request is 1 SOF + 5 header + 260 payload + 4 CRC bytes.
+// Retain the complete frame even if the CPU briefly stalls between MMIO reads.
+uart_fifo #(.DEPTH(512), .ADDR_WIDTH(9)) u_uart_rx_fifo (
+    .clk(clk), .resetn(resetn), .clear(uart_fifo_clear),
+    .clear_overflow(uart_overflow_clear), .push_data(uart_rx_data),
+    .push(uart_rx_valid), .pop(read_uart_valid && !uart_rx_empty),
+    .front(uart_rx_front), .empty(uart_rx_empty), .full(uart_rx_full),
+    .overflow(uart_rx_overflow)
+);
+
+assign uart_tx_start = !uart_tx_fifo_empty && uart_tx_ready;
+
+uart_fifo #(.DEPTH(16), .ADDR_WIDTH(4)) u_uart_tx_fifo (
+    .clk(clk), .resetn(resetn), .clear(1'b0),
+    .clear_overflow(1'b0), .push_data(write_uart_data),
+    .push(write_uart_valid), .pop(uart_tx_start),
+    .front(uart_tx_front), .empty(uart_tx_fifo_empty),
+    .full(uart_tx_fifo_full), .overflow(uart_tx_fifo_overflow)
+);
+
+uart_tx #(.CLOCK_HZ(CPU_CLOCK_HZ), .BAUD(115_200)) u_uart_tx (
+    .clk(clk), .resetn(resetn), .enable(uart_ctrl[1]),
+    .data(uart_tx_front), .valid(uart_tx_start),
+    .tx(uart_tx_o), .ready(uart_tx_ready), .busy(uart_tx_busy)
+);
+
 always @(posedge clk)
 begin
     if(!resetn)
@@ -427,12 +595,19 @@ begin
         virtual_uart_data <= 8'd0;
         confreg_uart_data <= 8'd0;
         confreg_uart_valid <= 1'd0;
+        uart_ctrl <= 32'h0000_0003;
     end
-    else if(write_uart_valid)
+    else
     begin
-        virtual_uart_data <= write_uart_data;
-        confreg_uart_data <= write_uart_data;
-        confreg_uart_valid <= write_uart_valid;
+        confreg_uart_valid <= 1'b0;
+        if(write_uart_valid)
+        begin
+            virtual_uart_data <= write_uart_data;
+            confreg_uart_data <= write_uart_data;
+            confreg_uart_valid <= 1'b1;
+        end
+        if(write_uart_ctrl)
+            uart_ctrl <= {conf_wdata[31:9], 1'b0, conf_wdata[7:0]};
     end
 end
 //----------------------------{virtual uart}end--------------------------//
