@@ -301,6 +301,7 @@ module soc_lite_lcd_top #(
     reg         debug_run_done_lcd;
     reg  [1 :0] debug_system_mode_lcd;
     reg  [3 :0] debug_active_slot_lcd;
+    reg  [7 :0] menu_status_lcd;
     reg  [31:0] num_data_lcd;
     reg  [7 :0] switch_lcd;
 
@@ -358,6 +359,7 @@ module soc_lite_lcd_top #(
             debug_run_done_lcd       <= 1'b0;
             debug_system_mode_lcd    <= 2'd0;
             debug_active_slot_lcd    <= 4'd0;
+            menu_status_lcd          <= 8'd0;
             num_data_lcd             <= 32'd0;
             switch_lcd               <= 8'd0;
             display_valid            <= 1'b0;
@@ -384,6 +386,7 @@ module soc_lite_lcd_top #(
             debug_run_done_lcd       <= debug_run_done;
             debug_system_mode_lcd    <= debug_system_mode;
             debug_active_slot_lcd    <= debug_active_slot;
+            menu_status_lcd          <= menu_status;
             num_data_lcd             <= num_data;
             switch_lcd               <= switch;
             display_valid            <= display_valid_next;
@@ -406,7 +409,19 @@ module soc_lite_lcd_top #(
 
     always @(*)
     begin
-        case (display_number)
+        // A completed generic program parks in its runtime exit loop, so its
+        // last commit PC is intentionally static.  Replace every selected
+        // debug page with the application result until a warm reset returns
+        // to the menu or another program starts.
+        if (debug_system_mode_lcd == 2'd3 && menu_status_lcd == 8'd4)
+        begin
+            display_valid_next = 1'b1;
+            display_name_next  = "OUT: ";
+            display_value_next = num_data_lcd;
+        end
+        else
+        begin
+          case (display_number)
             6'd1:
             begin
                 display_valid_next = 1'b1;
@@ -521,7 +536,8 @@ module soc_lite_lcd_top #(
                 display_name_next  = 40'd0;
                 display_value_next = 32'd0;
             end
-        endcase
+          endcase
+        end
     end
 
 endmodule

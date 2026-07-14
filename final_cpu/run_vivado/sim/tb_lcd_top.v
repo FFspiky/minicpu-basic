@@ -297,6 +297,31 @@ module tb_lcd_top;
         end
         release dut.display_number;
 
+        // Generic runtime completion must replace the static exit-loop PC
+        // with the C program's result, independent of the selected page.
+        force dut.debug_system_mode = 2'd3;
+        force dut.menu_status = 8'd4;
+        force dut.num_data = 32'h1234_abcd;
+        force dut.display_number = 6'd8;
+        #100;
+        if (dut.display_valid !== 1'b1 || dut.display_name !== "OUT: " ||
+            dut.display_value !== 32'h1234_abcd)
+        begin
+            $display("FAIL: completed C program left stale PC on LCD name=%h value=%h",
+                     dut.display_name, dut.display_value);
+            $fatal;
+        end
+        release dut.debug_system_mode;
+        release dut.menu_status;
+        release dut.num_data;
+        release dut.display_number;
+        #100;
+        if (dut.display_name === "OUT: ")
+        begin
+            $display("FAIL: LCD output override survived program/menu transition");
+            $fatal;
+        end
+
         if (lcd_cs !== 1'b1 || lcd_rd !== 1'b1 || lcd_bl_ctr !== 1'b1)
         begin
             $display("FAIL: LCD debug module pins are not in the expected state");
