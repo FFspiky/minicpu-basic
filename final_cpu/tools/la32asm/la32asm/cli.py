@@ -36,7 +36,9 @@ def _send_break_reset(handle) -> None:
     # A READY frame from an earlier boot can still be buffered by the USB UART.
     # Drop it before BREAK so wait_ready() can only accept the new boot's READY.
     handle.reset_input_buffer()
-    handle.send_break(duration=0.05)
+    # The physical USB-UART bridge reliably propagates a one-second BREAK;
+    # shorter pulses can be swallowed before reaching the FPGA RX pin.
+    handle.send_break(duration=1.0)
 
 
 def _connect_board(port, args) -> Downloader:

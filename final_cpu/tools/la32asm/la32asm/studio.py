@@ -168,7 +168,10 @@ def _serial(port_name: str):
 
 def _break_reset(port):
     """Request a warm reset by holding the UART receive line in BREAK."""
-    port.send_break(duration=0.05)
+    # The board's USB-UART bridge did not reliably propagate a 50 ms BREAK.
+    # One second is verified on the physical board and this function is
+    # called at most once, only after a non-mutating monitor probe times out.
+    port.send_break(duration=1.0)
 
 
 def _sync_uart(port):
@@ -214,11 +217,12 @@ def _boot_monitor(port) -> Downloader:
             port, retries=TRANSFER_RETRIES, timeout=TRANSFER_TIMEOUT
         )
 
-    # Do not reset the board automatically after a failed probe.  It may
-    # already be scanning NAND during monitor startup; another BREAK would
-    # restart that scan and repeated web requests could keep it in LOADING
-    # forever.  If an application is running, the operator presses physical
-    # reset once as instructed by the Studio UI.
+    # A failed probe normally means an application owns the CPU.  Issue one
+    # (and only one) warm reset, then accept either its READY frame or a later
+    # monitor probe.  Never repeat BREAK inside the wait loop: a monitor that
+    # is legitimately scanning NAND must be allowed to finish initialization.
+    _progress_update("reset", "Boot Monitor未响应，正在执行一次UART BREAK复位")
+    _break_reset(port)
     deadline = time.monotonic() + MONITOR_READY_TIMEOUT
     downloader = Downloader(port, retries=1, timeout=0.25)
     while time.monotonic() < deadline:

@@ -361,7 +361,27 @@ class ProtocolTests(unittest.TestCase):
         stream = BreakSerial()
         _send_break_reset(stream)
         self.assertEqual(stream.reset_count, 1)
-        self.assertEqual(stream.durations, [0.05])
+        self.assertEqual(stream.durations, [1.0])
+
+    def test_studio_resets_once_when_application_is_running(self):
+        class ApplicationSerial:
+            def __init__(self):
+                self.data = bytearray()
+                self.breaks = []
+            def reset_input_buffer(self): self.data.clear()
+            def send_break(self, duration):
+                self.breaks.append(duration)
+                self.data.extend(Frame(FrameType.READY, 0, b"").pack())
+            def write(self, data): return len(data)
+            def read(self, size):
+                chunk = self.data[:size]
+                del self.data[:size]
+                return bytes(chunk)
+
+        stream = ApplicationSerial()
+        downloader = _boot_monitor(stream)
+        self.assertIsInstance(downloader, Downloader)
+        self.assertEqual(stream.breaks, [1.0])
 
     def test_cli_attaches_to_running_monitor_without_break(self):
         class MonitorSerial:
