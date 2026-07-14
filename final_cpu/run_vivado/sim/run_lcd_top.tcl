@@ -17,6 +17,9 @@ file copy -force [file normalize [file join $run_dir .. tools la32asm build raci
 if {[catch {
     launch_simulation -simset sim_1 -mode behavioral
     run all
+    if {[get_value /tb_lcd_top/test_passed] ne "1"} {
+        error "LCD top regression failed; inspect [file join $sim_work simulate.log]"
+    }
 } error_message options]} {
     catch {close_sim -quiet}
     set_property TOP $previous_top $simset

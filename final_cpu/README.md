@@ -84,6 +84,9 @@ cd final_cpu\tools\la32asm
 
 ```c
 int printf(const char *format, ...);
+int scanf(const char *format, ...);       // %d/%u/%x: LCD touch numeric input
+int lcd_read_int(void);                   // wait for LCD touch confirmation
+void lcd_output(int value);               // LCD OUT page + seven-segment display
 
 int main(void) {
     int a = 1, b = 2;

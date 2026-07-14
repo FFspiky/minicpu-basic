@@ -7,13 +7,52 @@ typedef unsigned int u32;
 #define UART_TX_READY (1u << 8)
 #define OUTPUT_DATA (*(volatile u32 *)0xbfaff050u)
 #define PROGRAM_STATUS (*(volatile u32 *)0xbfafff64u)
+#define LCD_INPUT (*(volatile u32 *)0xbfaf9060u)
 
 static u32 last_output_value;
+static u32 last_input_toggle;
+static int input_initialized;
 
 void lcd_output(int value)
 {
     last_output_value = (u32)value;
     OUTPUT_DATA = last_output_value;
+}
+
+static u32 lcd_input_stable(void)
+{
+    (void)LCD_INPUT;
+    return LCD_INPUT;
+}
+
+int lcd_read_int(void)
+{
+    u32 mailbox;
+    if (!input_initialized) {
+        last_input_toggle = lcd_input_stable() >> 31;
+        input_initialized = 1;
+    }
+    do {
+        mailbox = lcd_input_stable();
+    } while ((mailbox >> 31) == last_input_toggle);
+    last_input_toggle = mailbox >> 31;
+    lcd_output((int)(mailbox & 0x7fffffffu));
+    return (int)(mailbox & 0x7fffffffu);
+}
+
+int scanf(const char *format, ...)
+{
+    va_list arguments;
+    int *destination;
+    if (!format || format[0] != '%' ||
+        (format[1] != 'd' && format[1] != 'u' && format[1] != 'x'))
+        return 0;
+    va_start(arguments, format);
+    destination = va_arg(arguments, int *);
+    va_end(arguments);
+    if (!destination) return 0;
+    *destination = lcd_read_int();
+    return 1;
 }
 
 static u32 uart_status_stable(void)

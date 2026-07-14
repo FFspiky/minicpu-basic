@@ -309,7 +309,14 @@ module soc_lite_lcd_top #(
     reg  [39:0] display_name_next;
     reg  [31:0] display_value_next;
 
-    assign lcd_status = 32'd0;
+    reg         lcd_input_toggle;
+    reg         lcd_input_valid_last;
+    reg  [30:0] lcd_input_value;
+
+    // The LCD IP emits a one-cycle pulse after the user confirms a numeric
+    // touch input.  Latch it into a stable mailbox for the CPU clock domain;
+    // bit 31 toggles for each new value, including repeated equal values.
+    assign lcd_status = {lcd_input_toggle, lcd_input_value};
 
     lcd_module u_lcd_module(
             .clk            (lcd_clk),
@@ -341,6 +348,9 @@ module soc_lite_lcd_top #(
     begin
         if (!peripheral_resetn)
         begin
+            lcd_input_toggle         <= 1'b0;
+            lcd_input_valid_last     <= 1'b0;
+            lcd_input_value          <= 31'd0;
             debug_wb_pc_lcd          <= 32'd0;
             debug_inst_lcd           <= 32'd0;
             debug_step_count_lcd     <= 32'd0;
@@ -368,6 +378,12 @@ module soc_lite_lcd_top #(
         end
         else
         begin
+            lcd_input_valid_last <= input_valid;
+            if (input_valid && !lcd_input_valid_last)
+            begin
+                lcd_input_toggle <= ~lcd_input_toggle;
+                lcd_input_value  <= input_value[30:0];
+            end
             debug_wb_pc_lcd          <= debug_wb_pc;
             debug_inst_lcd           <= debug_inst;
             debug_step_count_lcd     <= debug_step_count;
