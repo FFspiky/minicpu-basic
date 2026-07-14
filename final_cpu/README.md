@@ -46,6 +46,8 @@ bitstream；如需上电自动配置，应另行烧写板载配置Flash。赛车
 - `sw/selftest/trace_exp16/`：从流水线工程迁入并重定位的完整EXP16 `n1～n58`。
 - `tools/la32asm/`：自研汇编器、镜像工具、串口下载器和LA32 Studio。
 - `mem/exp23/inst_ram.mif/.coe`：已安装的Boot Monitor启动镜像。
+- `lib/lcd_module_cell.dcp`：综合使用的LCD模块检查点；体积较大的厂商手册和
+  STM32示例不随Git仓库发布。
 
 ## 构建
 
@@ -232,7 +234,7 @@ source D:/CPU_DESIGN/final_cpu/run_vivado/capture_incremental_baseline.tcl
 
 当前已完成的实现与验收验证：
 
-- 目标封装数据库确认114个顶层端口均有PACKAGE_PIN和IOSTANDARD，且无重复管脚；
+- 目标封装数据库确认115个顶层端口均有PACKAGE_PIN和IOSTANDARD，且无重复管脚；
 - 独立PLL综合、优化、放置及DRC均为0 Error/0 Critical Warning，`REQP-1712`未复现；
 - 完整顶层通过`xvlog`编译和`xelab`静态展开；
 - LCD内部二分频时钟已约束，`check_timing no_clock`为0；

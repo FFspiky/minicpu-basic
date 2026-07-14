@@ -9,6 +9,9 @@
 - `tmp/`、`outputs/`、`LA32-Studio-Portable/`；
 - `github_upload/`本地发布暂存目录；
 - `.bit`、`.zip`及其解压目录。
+- `final_cpu/【正点原子】.../`厂商手册和STM32示例包，以及重复的
+  `final_cpu/NT35510.PDF`；这些资料保留在开发机，硬件构建只使用受版本控制的
+  `final_cpu/lib/lcd_module_cell.dcp`。
 
 当前分支没有超过GitHub 100 MiB限制的Git对象。LA32 Studio便携ZIP超过100 MiB，
 必须作为GitHub Release附件上传，不能执行`git add`。
@@ -19,6 +22,12 @@
 
    ```powershell
    git push -u origin codex/nand-debug-20260714
+   ```
+
+   Windows首次克隆建议启用长路径兼容：
+
+   ```powershell
+   git -c core.longpaths=true clone https://github.com/FFspiky/minicpu-basic.git
    ```
 
 2. 在GitHub上创建Pull Request，将该分支合并到`main`。当前分支与远端`main`

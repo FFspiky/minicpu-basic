@@ -8,3 +8,7 @@ run_vivado/checkpoints/*.dcp
 run_vivado/checkpoints/*.txt
 **/__pycache__/
 *.pyc
+
+# Local LCD vendor manuals and MCU example bundles; the build uses lib/lcd_module_cell.dcp.
+/【正点原子】4.3寸TFT LCD电容触摸屏模块800480/
+/NT35510.PDF
