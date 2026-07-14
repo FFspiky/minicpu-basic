@@ -79,9 +79,9 @@ wire timer_clk;
 wire pll_locked;
 reg  cpu_resetn;
 // Behavioral simulations bypass the PLL and use a matched accelerated UART
-// model.  On hardware CLKOUT0 is 40 MHz while the serial line remains 115200.
-localparam integer UART_CLOCK_HZ = SIMULATION ? 50_000_000 : 40_000_000;
-localparam integer UART_BREAK_CYCLES = SIMULATION ? 8_000 : 80_000;
+// model.  Hardware and the UART timing model both use the 50 MHz CPU clock.
+localparam integer UART_CLOCK_HZ = 50_000_000;
+localparam integer UART_BREAK_CYCLES = SIMULATION ? 8_000 : 100_000;
 (* ASYNC_REG = "TRUE" *) reg [1:0] uart_rx_reset_sync;
 reg [16:0] uart_break_count;
 reg        uart_break_armed;

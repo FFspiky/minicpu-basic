@@ -1,18 +1,21 @@
 `timescale 1ns / 1ps
+`include "la32_defs.vh"
 
 module la32_imm_gen(
-    input  wire [31:0] inst,
-    output wire [31:0] si12,
-    output wire [31:0] ui12,
-    output wire [31:0] offs16,
-    output wire [31:0] offs26,
-    output wire [31:0] si20
+    input  wire [25:0] imm,
+    input  wire [ 2:0] EXTOP,
+    output reg  [31:0] ext_imm
 );
-
-    assign si12   = {{20{inst[21]}}, inst[21:10]};
-    assign ui12   = {20'b0, inst[21:10]};
-    assign offs16 = {{14{inst[25]}}, inst[25:10], 2'b0};
-    assign offs26 = {{4{inst[9]}}, inst[9:0], inst[25:10], 2'b0};
-    assign si20   = {inst[24:5], 12'b0};
-
+    always @(*) begin
+        case (EXTOP)
+            `EXTOP_SI12:   ext_imm = {{20{imm[21]}}, imm[21:10]};
+            `EXTOP_UI12:   ext_imm = {20'b0, imm[21:10]};
+            `EXTOP_UI5:    ext_imm = {27'b0, imm[14:10]};
+            `EXTOP_SI20:   ext_imm = {imm[24:5], 12'b0};
+            `EXTOP_OFFS16: ext_imm = {{14{imm[25]}}, imm[25:10], 2'b0};
+            `EXTOP_OFFS26: ext_imm = {{4{imm[9]}}, imm[9:0],
+                                      imm[25:10], 2'b0};
+            default:       ext_imm = 32'b0;
+        endcase
+    end
 endmodule

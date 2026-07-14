@@ -121,7 +121,9 @@ foreach candidate [glob -nocomplain ../rtl/xilinx_ip/*/*.xci] {
 }
 add_new_quiet_files $ip_xci_files
 
-sync_design_directory ../rtl/cpu *.v
+# Keep the refactored pipeline's shared macro definitions in the managed
+# source set as well as the Verilog modules.
+sync_design_directory ../rtl/cpu *.v*
 
 set board_sim_files [glob -nocomplain ./sim/*.v]
 if {[llength $board_sim_files] > 0} {

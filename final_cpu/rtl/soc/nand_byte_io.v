@@ -2,7 +2,7 @@
 `default_nettype none
 
 // One NAND asynchronous byte transaction.  The board CPU/NAND clock is
-// currently 40 MHz, so each state lasts 25 ns.  Writes deliberately use
+// currently 50 MHz, so each state lasts 20 ns.  Writes deliberately use
 // separate setup, low-hold and recovery states: changing DQ/CLE/ALE on the
 // same edge that raises WE# violates the NAND data/command hold time and made
 // reads appear healthy while erase/program operations failed intermittently.

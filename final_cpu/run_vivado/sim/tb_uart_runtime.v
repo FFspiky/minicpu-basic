@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 module tb_uart_runtime;
-    localparam integer CLOCK_HZ = 40_000_000;
+    localparam integer CLOCK_HZ = 50_000_000;
     localparam integer BAUD = 115_200;
     localparam integer CLKS_PER_BIT = (CLOCK_HZ + BAUD/2) / BAUD;
     localparam real BIT_NS = 1_000_000_000.0 / BAUD;
@@ -11,7 +11,7 @@ module tb_uart_runtime;
     wire [7:0] rx_data;
     wire rx_valid,frame_error;
 
-    // 40 MHz board CPU/UART clock.  TX and RX are verified independently:
+    // 50 MHz board CPU/UART clock.  TX and RX are verified independently:
     // no project UART is used to decode the transmitter under test.
     always #(500_000_000.0/CLOCK_HZ) clk=~clk;
     uart_tx #(.CLOCK_HZ(CLOCK_HZ),.BAUD(BAUD)) tx(
@@ -80,7 +80,7 @@ module tb_uart_runtime;
                 end
             end
         join
-        $display("PASS UART STANDARD 40MHz/115200 CLKS_PER_BIT=%0d",CLKS_PER_BIT);
+        $display("PASS UART STANDARD 50MHz/115200 CLKS_PER_BIT=%0d",CLKS_PER_BIT);
         $finish;
     end
 endmodule

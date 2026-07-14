@@ -25,11 +25,10 @@ module board_clock_gen(
         .DIVCLK_DIVIDE(1),
         .CLKFBOUT_MULT(8),
         .CLKFBOUT_PHASE(0.000),
-        // Keep the 100 MHz peripheral/VGA clock unchanged, but give the CPU
-        // and unified-RAM path enough implementation margin.  Use an exact
-        // 2:5 relationship: 800/20 = 40 MHz and 800/8 = 100 MHz.  The former
-        // 45/100 MHz pair created 1.111 ns related-clock capture windows.
-        .CLKOUT0_DIVIDE(20),
+        // Keep the 100 MHz peripheral/VGA clock unchanged.  The refactored
+        // pipeline targets 50 MHz, using the exact 1:2 relationship
+        // 800/16 = 50 MHz and 800/8 = 100 MHz.
+        .CLKOUT0_DIVIDE(16),
         .CLKOUT0_PHASE(0.000),
         .CLKOUT0_DUTY_CYCLE(0.500),
         .CLKOUT1_DIVIDE(8),

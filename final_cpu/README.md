@@ -104,7 +104,7 @@ int main(void) {
 
 ## 硬件接口
 
-- CPU/UART时钟：40 MHz；UART线速仍为115200、8N1，分频为347个时钟/位（实际约115274，误差约+0.064%）。RX=`F23`、TX=`H19`；F25是板端DTR输出并保持未使能状态。Studio通过RX上的UART BREAK请求warm reset。
+- CPU/UART时钟：50 MHz；UART线速仍为115200、8N1，分频为434个时钟/位（实际约115207，误差约+0.0064%）。RX=`F23`、TX=`H19`；F25是板端DTR输出并保持未使能状态。Studio通过RX上的UART BREAK请求warm reset。
 - DB9为RS-232电平，应使用USB转RS-232线，不能直接连接USB-TTL。
 - NAND：K9F1G08U0C，16个固定程序槽，坏块扫描、每512字节单比特ECC及双副本目录。
 - VGA：菜单、赛车和SELFTEST状态。
@@ -115,8 +115,8 @@ int main(void) {
 - 自研工具链24项单元/集成测试通过，包括多GCC翻译单元局部符号隔离、`.comm` BSS布局、Boot READY同步、短帧目录读取、运行状态回传和可靠复位。
 - 赛车GCC汇编经自研汇编后的2740字节机器码与既有GNU结果逐字节一致。
 - 完整流水线EXP16 `n1～n58`已生成约532 KiB LA32IMG，并与重定位后的GNU参考机器码进行差分验证。
-- 完整EXP16已在`final_cpu`流水线RTL中实际运行通过：`PASS PIPELINE EXP16`，332,206周期后得到双绿灯结果。
-- UART独立标准波形仿真：`PASS UART STANDARD 40MHz/115200 CLKS_PER_BIT=347`；TX按时钟逐位检查，RX使用理想115200波形驱动，不再用本工程RX解码本工程TX。
+- 完整EXP16已在`final_cpu`流水线RTL中实际运行通过：`PASS PIPELINE EXP16`，406,531周期后得到双绿灯结果。
+- UART独立标准波形仿真：`PASS UART STANDARD 50MHz/115200 CLKS_PER_BIT=434`；TX按时钟逐位检查，RX使用理想115200波形驱动，不再用本工程RX解码本工程TX。
 - NAND READ ID、写页、读页、擦除、1/4/2048/2112字节传输、4路byte-enable、边界和超时仿真：`PASS NAND RAW BRAM`。
 - NAND页缓冲独立综合为`1 RAMB36E1`，控制器共`425 LUT / 280 FF`，不再使用约1.7万个页缓冲寄存器。
 - Boot Monitor集成仿真验证READY、长按键单次移动、下载第2帧DATA返回ACK、完整1072字节LIST回复、同步字节忽略、截断帧超时恢复、MENU写BSS及应用模式boot区写保护。
@@ -124,6 +124,14 @@ int main(void) {
 - CRC与单比特ECC测试：`PASS CHECKSUM ECC`。
 - 全部RTL通过Vivado 2019.2 `xvlog`编译。
 - Boot Monitor低于64 KiB保护区限制。
+
+## 重构流水线移植验证（2026-07-14）
+
+- `cdp_ede_pipeline`中整理后的五级流水线核心已按原有CPU SRAM/debug接口移入`final_cpu`，Boot Monitor、NAND、UART、VGA、LCD和赛车外设边界保持不变。
+- 原流水线工程EXP16共58个功能点全部通过；`final_cpu`中的EXP16、Boot Monitor、通用C以及LCD/赛车顶层回归均通过。
+- 从RTL执行非增量50 MHz完整构建，综合、布局、布线和bitstream生成均成功；最终WNS为`+0.824 ns`、WHS为`+0.033 ns`，TNS/THS均为0，routed DRC为0 Error。
+- 生成文件为`run_vivado/project_lcd/final_cpu_lcd.runs/impl_1/soc_lite_lcd_top.bit`，大小9,730,765字节，SHA-256为`732463b41b9774b4c03a5e7c5d5303ee68ecd07d90152bb670785e07ecbf17f5`。Vivado生成物不纳入Git历史。
+- 该50 MHz bitstream已通过RTL和实现门禁，尚需实板复核NAND安装/读取、F12返回、赛车、EXP16和通用C输出；下方“稳定版实板验收”记录的是移植前已完成的实板基线。
 
 ## 稳定版实板验收（2026-07-14）
 
@@ -176,7 +184,7 @@ cd D:\CPU_DESIGN\final_cpu
 预期输出：
 
 ```text
-STATIC_PREFLIGHT_PASS ports=114 package_pins=114
+STATIC_PREFLIGHT_PASS ports=115 package_pins=115
 ```
 
 如需单独复核本次`REQP-1712`根因，可运行约一分钟的时钟专用门禁（只综合和放置PLL小模块，不综合CPU、不生成bitstream）：
@@ -243,14 +251,14 @@ source D:/CPU_DESIGN/final_cpu/run_vivado/capture_incremental_baseline.tcl
 - NAND OOC综合为`425 LUT / 280 FF / 1 RAMB36E1`；
 - `PASS CONFREG NAND synchronous BRAM response`；
 - `PASS BOOT monitor BSS, key edge, frame 2 ACK and write protection`；
-- `PASS PIPELINE EXP16 cycles=332206 pc=1c02027c`；
+- `PASS PIPELINE EXP16 cycles=406531 pc=1c010110`；
 - 自研工具链24项单元/集成测试全部通过；
-- `PASS GENERIC C runtime output prefix and EOT`；
+- `PASS GENERIC C UART, LCD output value, and DONE status`；
 - Boot Monitor为11936字节，低于64 KiB boot区限制。
 
-稳定版已经完成完整综合、布局、布线、物理优化和bitstream生成。最终实现结果为
-WNS `+1.256 ns`、WHS `+0.052 ns`、TNS/THS均为0，routed DRC为0 Error；发布时
-应使用Release中带SHA256的稳定bitstream，不要混用旧工程目录中的生成文件。
+本次重构流水线移植已完成完整综合、布局、布线、物理优化和bitstream生成。最终实现结果为
+WNS `+0.824 ns`、WHS `+0.033 ns`、TNS/THS均为0，routed DRC为0 Error。当前生成文件
+用于实板候选验证；正式发布前应在实板通过上述关键功能复核，不要混用旧工程目录中的生成文件。
 
 ## 自定义C程序的当前边界
 
