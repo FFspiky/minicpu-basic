@@ -4,12 +4,18 @@ from unittest.mock import patch
 
 from la32asm.assembler import Assembler, AssemblyError
 from la32asm.image import Image, ImageError, ImageType
-from la32asm.protocol import Downloader, Frame, FrameType
+from la32asm.protocol import Downloader, Frame, FrameType, SOF
 from la32asm.cli import _connect_board, _send_break_reset
 from la32asm.studio import (
     _boot_monitor, _decode_runtime_output, _probe_monitor,
     read_directory_slots, read_ui_status,
 )
+
+
+def unpack_host_request(data):
+    """Decode one host write after its optional UART synchronization bytes."""
+    blob = bytes(data)
+    return Frame.unpack(blob[blob.index(bytes([SOF])):])
 
 
 class AssemblerTests(unittest.TestCase):
@@ -235,6 +241,27 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(response.frame_type, FrameType.ACK)
         self.assertEqual(downloader.sequence, 1)
         self.assertEqual(len(stream.writes), 1)
+        self.assertEqual(stream.writes[0][:8], b"\x55" * 8)
+        self.assertEqual(unpack_host_request(stream.writes[0]).frame_type,
+                         FrameType.LIST)
+
+    def test_slot_commands_use_bounded_operation_specific_timeouts(self):
+        class RecordingDownloader(Downloader):
+            def __init__(self):
+                self.calls = []
+            def request(self, operation, payload=b"", **kwargs):
+                self.calls.append((operation, payload, kwargs))
+                return Frame(FrameType.ACK, 0)
+
+        downloader = RecordingDownloader()
+        downloader.slot_command(FrameType.VERIFY, 2)
+        downloader.slot_command(FrameType.REMOVE, 3)
+        downloader.slot_command(FrameType.FORMAT)
+        self.assertEqual(downloader.calls, [
+            (FrameType.VERIFY, b"\x02", {"timeout": 15.0, "retries": 2}),
+            (FrameType.REMOVE, b"\x03", {"timeout": 10.0, "retries": 1}),
+            (FrameType.FORMAT, b"", {"timeout": 120.0, "retries": 1}),
+        ])
 
     def test_image_transfer_uses_256_byte_data_chunks(self):
         class TransferSerial:
@@ -242,7 +269,7 @@ class ProtocolTests(unittest.TestCase):
                 self.data = bytearray()
                 self.requests = []
             def write(self, data):
-                request = Frame.unpack(bytes(data))
+                request = unpack_host_request(data)
                 self.requests.append(request)
                 self.data.extend(Frame(FrameType.ACK, request.sequence, b"\0").pack())
                 return len(data)
@@ -259,17 +286,17 @@ class ProtocolTests(unittest.TestCase):
             progress=lambda *event: progress.append(event),
         )
         data = [request for request in stream.requests if request.frame_type == FrameType.DATA]
-        self.assertEqual(len(data), 15)
+        self.assertEqual(len(data), 10)
         self.assertEqual(
-            [len(request.payload) for request in data[::3]],
+            [len(request.payload) for request in data[::2]],
             [260, 260, 260, 260, 5],
         )
         self.assertEqual(
-            [struct.unpack_from("<I", request.payload)[0] for request in data[::3]],
+            [struct.unpack_from("<I", request.payload)[0] for request in data[::2]],
             [0, 256, 512, 768, 1024],
         )
-        for group in range(0, len(data), 3):
-            self.assertEqual(data[group:group + 3], [data[group]] * 3)
+        for group in range(0, len(data), 2):
+            self.assertEqual(data[group:group + 2], [data[group]] * 2)
         non_data = [
             request.frame_type for request in stream.requests
             if request.frame_type != FrameType.DATA
@@ -294,7 +321,7 @@ class ProtocolTests(unittest.TestCase):
                 self.requests = []
                 self.reset_count = 0
             def write(self, data):
-                request = Frame.unpack(bytes(data))
+                request = unpack_host_request(data)
                 self.requests.append(request)
                 if request.frame_type != FrameType.RUN_START:
                     self.data.extend(
@@ -335,7 +362,7 @@ class ProtocolTests(unittest.TestCase):
                 self.data.clear()
                 self.reset_count += 1
             def write(self, data):
-                request = Frame.unpack(bytes(data))
+                request = unpack_host_request(data)
                 self.data.extend(Frame(FrameType.DONE, request.sequence, b"directory").pack())
                 return len(data)
             def read(self, size):
@@ -405,7 +432,7 @@ class ProtocolTests(unittest.TestCase):
                 self.writes += 1
                 if self.writes == 1:
                     return len(data)
-                request = Frame.unpack(bytes(data))
+                request = unpack_host_request(data)
                 self.data.extend(Frame(FrameType.NACK, request.sequence, b"\x07").pack())
                 return len(data)
             def read(self, size):
@@ -427,7 +454,7 @@ class ProtocolTests(unittest.TestCase):
             def __init__(self):
                 self.data = bytearray()
             def write(self, data):
-                request = Frame.unpack(bytes(data))
+                request = unpack_host_request(data)
                 self.data.extend(Frame(FrameType.DONE, request.sequence, b"directory").pack())
                 return len(data)
             def read(self, size):

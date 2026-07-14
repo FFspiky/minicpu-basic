@@ -24,7 +24,7 @@ Python 3.10+创建`.venv`并安装锁定依赖。无Python的电脑请下载GitH
 
 浏览器默认打开`http://127.0.0.1:8765`。页面支持：
 
-Studio默认不发送250 ms的`0x55`字节洪流：UART使用固定分频而非自动波特率，训练字节不会校准硬件，反而可能在Boot Monitor扫描NAND期间填满16字节RX FIFO。仅在诊断时可设置环境变量`LA32_UART_SYNC_BYTES`显式启用前导字节。
+下载器会在每个普通单副本请求前，用同一次USB写入发送8个`0x55`同步字节；Boot Monitor会忽略这些字节并寻找随后的帧头。DATA使用实板长传输验证的连续双副本和0.25秒快速重试，END使用带板端结果缓存的连续三副本；副本之间都不插入前导。环境变量`LA32_UART_SYNC_BYTES`只用于在首次探测前额外发送诊断前导。
 
 - 编辑和构建简单freestanding C；
 - 同时查看C源码、GCC生成的LA32R汇编和自研机器码listing；
@@ -44,7 +44,7 @@ int main(void) {
 }
 ```
 
-通用程序的字符结果经UART显示在Studio网页；VGA显示`GENERIC PROGRAM / RUNNING`。赛车仍使用原有VGA画面。
+通用程序的字符结果经UART显示在Studio网页；VGA在执行时显示`GENERIC PROGRAM / RUNNING`，正常退出后显示`DONE`并提示查看LCD输出。LCD沿用CPU调试面板，只增加一个`OUT`和一个`IN`区域。赛车仍使用原有VGA画面。
 
 ## 命令行
 
@@ -58,6 +58,9 @@ la32asm verify --slot 0 --port COMx
 la32asm format --port COMx
 la32asm studio
 ```
+
+`list`把NAND目录拆成16个可独立重试的短响应，并保存为UTF-8 JSON（默认为
+`board-directory.json`）。这样不会再触发旧版单次1072字节长响应在物理串口上的拥塞问题。
 
 ## 测试
 

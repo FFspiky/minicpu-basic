@@ -29,10 +29,9 @@ COMPILER = os.environ.get(
 MONITOR_READY_TIMEOUT = 180.0
 TRANSFER_RETRIES = 20
 TRANSFER_TIMEOUT = 0.75
-# The UART uses a fixed divisor rather than auto-baud, so a long 0x55 train
-# provides no calibration benefit.  More importantly, it can fill the 16-byte
-# board FIFO while the monitor is scanning NAND after reset.  Keep an opt-in
-# diagnostic preamble, but send none during normal Studio operation.
+# Downloader places a short synchronization train immediately before each
+# ordinary request.  Keep this separate, pre-probe train as an opt-in hardware
+# diagnostic only; normal Studio operation does not need an additional burst.
 UART_SYNC_BYTES = int(os.environ.get("LA32_UART_SYNC_BYTES", "0"))
 SELFTEST_CAPTURE_TIMEOUT = 300.0
 VGA_EVENT_PATTERN = re.compile(r"^VGA:(RUNNING|DONE|PASSED|FAILED)\r?\n?", re.MULTILINE)
@@ -178,7 +177,7 @@ def _break_reset(port):
 
 
 def _sync_uart(port):
-    """Optionally send a diagnostic 0x55 preamble; fixed-baud mode needs none."""
+    """Optionally send an extra diagnostic 0x55 preamble before probing."""
     if UART_SYNC_BYTES:
         port.write(b"\x55" * UART_SYNC_BYTES)
         port.flush()

@@ -9,6 +9,8 @@ import time
 import zlib
 
 SOF = 0x7E
+SYNC_BYTE = 0x55
+DEFAULT_SYNC_BYTES = 8
 MAX_DATA = 256
 _PREFIX = struct.Struct("<BHH")
 
@@ -76,10 +78,19 @@ def read_frame(serial_port, timeout: float = 0.5) -> Frame:
 
 
 class Downloader:
-    def __init__(self, serial_port, retries: int = 5, timeout: float = 0.5):
+    def __init__(
+        self,
+        serial_port,
+        retries: int = 5,
+        timeout: float = 0.5,
+        sync_bytes: int = DEFAULT_SYNC_BYTES,
+    ):
+        if sync_bytes < 0:
+            raise ValueError("sync_bytes must not be negative")
         self.serial = serial_port
         self.retries = retries
         self.timeout = timeout
+        self.sync_bytes = sync_bytes
         self.sequence = 0
 
     def wait_ready(self, timeout: float = 5.0) -> None:
@@ -110,8 +121,20 @@ class Downloader:
         attempt_count = self.retries if retries is None else retries
         for _ in range(attempt_count):
             packed = frame.pack()
-            for _ in range(copies):
-                self.serial.write(packed)
+            if copies == 1:
+                # The physical 50 MHz board occasionally samples the first
+                # start bit outside its reliable RX phase window.  A short
+                # 0x55 train gives the synchronizer several harmless edges
+                # immediately before the one real frame.  The monitor seeks
+                # SOF and ignores these bytes, and combining both parts in one
+                # host write prevents an OS scheduling gap between them.
+                self.serial.write(bytes([SYNC_BYTE]) * self.sync_bytes + packed)
+            else:
+                # Copies are used only for commands documented as idempotent.
+                # Do not add a preamble between adjacent copies: DATA uses two
+                # back-to-back frames and END/RUN_START use three.
+                for _ in range(copies):
+                    self.serial.write(packed)
             deadline = time.monotonic() + response_timeout
             while time.monotonic() < deadline:
                 try:
@@ -155,17 +178,21 @@ class Downloader:
         for frame_index, offset in enumerate(range(0, len(image), MAX_DATA), 1):
             chunk = image[offset:offset + MAX_DATA]
             # Keep stop-and-wait flow control: while the monitor computes the
-            # frame CRC and transmits its ACK it does not drain the 16-byte RX
-            # FIFO, so sending the next frame early could overflow the board.
-            # DATA writes are idempotent: all copies carry the same sequence,
-            # offset and bytes.  The board UART occasionally accepts traffic
-            # only in short phase windows; three adjacent copies produced an
-            # ACK in every group during the 50-frame hardware stress test,
-            # without duplicating the non-idempotent INSTALL request.
+            # frame CRC and transmits its ACK it momentarily does not drain the
+            # 512-byte RX FIFO, so sending the next sequence early could still
+            # mix acknowledgements with queued duplicate frames.
+            # DATA writes are idempotent: both copies carry the same sequence,
+            # offset and bytes.  Three continuous copies were fast on short
+            # images but accumulated receive pressure during a 532636-byte
+            # physical-board transfer and eventually produced NACK 04.  Two
+            # copies passed 800 frames beyond that failure point.  A DATA ACK
+            # is immediate, so a short retry window avoids spending 0.75 s on
+            # a phase-lost group without changing the long END timeout.
             self.request(
                 FrameType.DATA,
                 struct.pack("<I", offset) + chunk,
-                copies=3,
+                timeout=min(self.timeout, 0.25),
+                copies=2,
             )
             if progress:
                 progress(
@@ -221,7 +248,19 @@ class Downloader:
 
     def slot_command(self, operation: FrameType, slot: int | None = None) -> Frame:
         payload = b"" if slot is None else bytes([slot])
-        if operation in (FrameType.FORMAT, FrameType.VERIFY, FrameType.REMOVE,
-                         FrameType.SCAN_DIRECTORIES):
-            return self.request(operation, payload, timeout=120.0, retries=2)
+        if operation == FrameType.FORMAT:
+            # FORMAT is deliberately not repeated: a lost reply must not
+            # silently launch a second full-device erase.
+            return self.request(operation, payload, timeout=120.0, retries=1)
+        if operation == FrameType.VERIFY:
+            # The largest seven-block image verifies in several seconds on
+            # the physical board.  Fifteen seconds covers that work without
+            # turning one lost request into a four-minute apparent hang.
+            return self.request(operation, payload, timeout=15.0, retries=2)
+        if operation == FrameType.REMOVE:
+            # REMOVE updates one directory copy and is not safely repeatable
+            # when the first ACK is lost.
+            return self.request(operation, payload, timeout=10.0, retries=1)
+        if operation == FrameType.SCAN_DIRECTORIES:
+            return self.request(operation, payload, timeout=30.0, retries=1)
         return self.request(operation, payload)

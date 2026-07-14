@@ -162,9 +162,19 @@ def command_transfer(args, operation: FrameType) -> int:
 
 
 def command_board(args, operation: FrameType) -> int:
+    slots = None
     with _open_serial(args.port, args.baud) as port:
         downloader = _connect_board(port, args)
-        if operation == FrameType.SCAN_DIRECTORIES:
+        if operation == FrameType.LIST:
+            # The legacy zero-payload LIST response is 1072 bytes.  If that
+            # long reply is damaged, an automatic retry makes the monitor
+            # generate another full response while the first is still being
+            # drained.  Read the same directory as sixteen independently
+            # retryable 70-byte slot records, exactly as Studio does.
+            from .studio import read_directory_slots
+            slots = read_directory_slots(downloader)
+            response = None
+        elif operation == FrameType.SCAN_DIRECTORIES:
             response = downloader.request(
                 operation,
                 struct.pack("<HH", args.start_block, args.count),
@@ -176,7 +186,10 @@ def command_board(args, operation: FrameType) -> int:
                 operation, getattr(args, "slot", None)
             )
     if operation == FrameType.LIST:
-        Path(args.output).write_bytes(response.payload)
+        Path(args.output).write_text(
+            json.dumps(slots, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
         print(f"saved board directory to {args.output}")
     elif operation == FrameType.DIAGNOSTICS:
         layout = struct.Struct("<13I")
@@ -272,7 +285,7 @@ def make_parser() -> argparse.ArgumentParser:
         command.add_argument("--no-reset", action="store_true")
         if name in ("remove", "verify"):
             command.add_argument("--slot", type=int, choices=range(16), required=True)
-        if name == "list": command.add_argument("-o", "--output", default="board-directory.bin")
+        if name == "list": command.add_argument("-o", "--output", default="board-directory.json")
         if name == "scan-dirs":
             command.add_argument("--start-block", type=int, choices=range(1024), default=0)
             command.add_argument("--count", type=int, choices=range(1,65), default=32)

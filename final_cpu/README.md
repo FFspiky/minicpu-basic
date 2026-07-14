@@ -131,7 +131,12 @@ int main(void) {
 - 原流水线工程EXP16共58个功能点全部通过；`final_cpu`中的EXP16、Boot Monitor、通用C以及LCD/赛车顶层回归均通过。
 - 从RTL执行非增量50 MHz完整构建，综合、布局、布线和bitstream生成均成功；最终WNS为`+0.824 ns`、WHS为`+0.033 ns`，TNS/THS均为0，routed DRC为0 Error。
 - 生成文件为`run_vivado/project_lcd/final_cpu_lcd.runs/impl_1/soc_lite_lcd_top.bit`，大小9,730,765字节，SHA-256为`732463b41b9774b4c03a5e7c5d5303ee68ecd07d90152bb670785e07ecbf17f5`。Vivado生成物不纳入Git历史。
-- 该50 MHz bitstream已通过RTL和实现门禁，尚需实板复核NAND安装/读取、F12返回、赛车、EXP16和通用C输出；下方“稳定版实板验收”记录的是移植前已完成的实板基线。
+- 该50 MHz bitstream已由用户经JTAG下载并完成阶段性实板复核：16槽短帧目录连续读取3/3通过，槽0赛车、槽1 EXP16、槽2 C Playground的名称/大小/CRC保持正确；三个镜像均完成整镜像VERIFY，其中532636字节EXP16耗时4.141秒。
+- 槽2已用正式CLI覆盖安装并在8.14秒完成，安装后为1427字节、CRC `3bf985a6`、数据块9；暖复位后目录仍为有效掩码`0x0007`。
+- 赛车已由用户从NAND启动并确认50 MHz下正常运行；同一C镜像经Studio临时运行得到`c = 3`、`[program exited: 0]`以及`RUNNING -> DONE`事件。
+- 完整EXP16临时传输完成2081/2081个DATA帧和532636/532636字节，DATA耗时219.9秒、END/启动完成于261.3秒，最终在264.7秒收到`VGA:PASSED`且未出现`FAILED`。传输后暖复位，三个NAND槽的名称、大小和CRC保持不变。
+- 三副本DATA在旧策略下于序号673返回NACK 04；改成连续双副本和0.25秒快速重试后，先通过800帧边界试验，再通过上述完整2081帧运行。END继续使用带板端结果缓存的三副本。LCD实板观察已确认沿用原调试面板，并且只显示一个`OUT`和一个`IN`框；EXP16结束后稳定显示的PC `0x1c010110`是重定位后`test_finish`末尾的预设自循环地址，属于正常结果。
+- CLI `list`已与Studio统一为16个70字节可重试短响应；实板连续3次读取均得到相同JSON SHA-256 `c5ae85a64052f8355f5abc6fae82b90912449c0d70b6a0528bf22b03ab21d7db`，不再触发旧版1072字节长响应重试拥塞。
 
 ## 稳定版实板验收（2026-07-14）
 
