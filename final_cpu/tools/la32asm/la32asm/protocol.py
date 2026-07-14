@@ -195,6 +195,15 @@ class Downloader:
             retries=self.retries,
             copies=3,
         )
+        # Every accepted END copy produces the same cached DONE.  The first
+        # one completes request(), but later replies may still be in the USB
+        # serial buffer.  The monitor has not started a temporary application
+        # yet, so allow those short frames to arrive and discard them before
+        # RUN_START; otherwise they would be displayed as application output.
+        time.sleep(0.05)
+        reset_input = getattr(self.serial, "reset_input_buffer", None)
+        if reset_input is not None:
+            reset_input()
         if operation == FrameType.RUN_TEMPORARY:
             # END only validates the RAM image.  Keep the monitor available
             # until DONE has actually reached us, then send a one-way start

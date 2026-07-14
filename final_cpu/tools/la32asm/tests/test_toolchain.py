@@ -252,6 +252,7 @@ class ProtocolTests(unittest.TestCase):
             def __init__(self):
                 self.data = bytearray()
                 self.requests = []
+                self.reset_count = 0
             def write(self, data):
                 request = Frame.unpack(bytes(data))
                 self.requests.append(request)
@@ -264,6 +265,9 @@ class ProtocolTests(unittest.TestCase):
                 chunk = self.data[:size]
                 del self.data[:size]
                 return bytes(chunk)
+            def reset_input_buffer(self):
+                self.data.clear()
+                self.reset_count += 1
 
         stream = TransferSerial()
         downloader = Downloader(stream, retries=2, timeout=0.05)
@@ -280,6 +284,7 @@ class ProtocolTests(unittest.TestCase):
         starts = [stream.requests[index] for index in start_indexes]
         self.assertEqual(starts, [starts[0]] * 3)
         self.assertEqual(starts[0].sequence, 4)
+        self.assertEqual(stream.reset_count, 1)
 
     def test_studio_attaches_to_existing_monitor_without_reset(self):
         class MonitorSerial:
