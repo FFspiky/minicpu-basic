@@ -7,7 +7,8 @@ from la32asm.image import Image, ImageError, ImageType
 from la32asm.protocol import Downloader, Frame, FrameType
 from la32asm.cli import _connect_board, _send_break_reset
 from la32asm.studio import (
-    _boot_monitor, _probe_monitor, read_directory_slots, read_ui_status,
+    _boot_monitor, _decode_runtime_output, _probe_monitor,
+    read_directory_slots, read_ui_status,
 )
 
 
@@ -120,6 +121,13 @@ class ImageTests(unittest.TestCase):
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_runtime_vga_events_are_returned_separately_from_program_output(self):
+        output, events = _decode_runtime_output(
+            b"VGA:RUNNING\r\nanswer=3\r\nVGA:PASSED\r\n"
+        )
+        self.assertEqual(output, "answer=3\r\n")
+        self.assertEqual(events, ["RUNNING", "PASSED"])
+
     def test_frame_round_trip(self):
         frame = Frame(FrameType.DATA, 7, b"payload")
         self.assertEqual(Frame.unpack(frame.pack()), frame)

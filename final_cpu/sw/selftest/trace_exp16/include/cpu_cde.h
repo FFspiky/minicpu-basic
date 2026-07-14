@@ -13,6 +13,7 @@
 
 #define IO_SIMU_ADDR            0xbfafff00
 #define UART_ADDR               0xbfafff10
+#define UART_STATUS_ADDR        0xbfafff14
 #define SIMU_FLAG_ADDR          0xbfafff20
 #define OPEN_TRACE_ADDR         0xbfafff30
 #define NUM_MONITOR_ADDR        0xbfafff40

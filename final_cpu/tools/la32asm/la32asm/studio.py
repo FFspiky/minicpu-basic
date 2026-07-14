@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import struct
 import subprocess
@@ -13,7 +14,7 @@ import time
 from pydantic import BaseModel
 
 from .assembler import Assembler
-from .image import ImageType
+from .image import Image, ImageType
 from .protocol import Downloader, FrameType
 
 FINAL_CPU = Path(__file__).resolve().parents[3]
@@ -33,6 +34,8 @@ TRANSFER_TIMEOUT = 0.75
 # board FIFO while the monitor is scanning NAND after reset.  Keep an opt-in
 # diagnostic preamble, but send none during normal Studio operation.
 UART_SYNC_BYTES = int(os.environ.get("LA32_UART_SYNC_BYTES", "0"))
+SELFTEST_CAPTURE_TIMEOUT = 300.0
+VGA_EVENT_PATTERN = re.compile(r"^VGA:(RUNNING|DONE|PASSED|FAILED)\r?\n?", re.MULTILINE)
 
 _PROGRESS = {
     "active": False,
@@ -337,10 +340,18 @@ def build_generic(source_text: str) -> dict:
     }
 
 
+def _decode_runtime_output(payload: bytes) -> tuple[str, list[str]]:
+    decoded = payload.decode("utf-8", "replace")
+    events = VGA_EVENT_PATTERN.findall(decoded)
+    return VGA_EVENT_PATTERN.sub("", decoded), events
+
+
 def run_image(image_path: str | Path, port_name: str) -> dict:
     image = Path(image_path).read_bytes()
+    image_type = Image.unpack(image).image_type
     output = bytearray()
     completed = False
+    terminal_status = ""
     _progress_begin("run", "正在连接板端运行环境", len(image))
     try:
         with SERIAL_LOCK, _serial(port_name) as port:
@@ -351,24 +362,45 @@ def run_image(image_path: str | Path, port_name: str) -> dict:
                 progress=_transfer_progress(FrameType.RUN_TEMPORARY),
             )
             _progress_update("output", "程序已启动，正在采集UART输出")
-            deadline = time.monotonic() + 5.0
+            deadline = time.monotonic() + (
+                SELFTEST_CAPTURE_TIMEOUT if image_type == ImageType.SELFTEST else 5.0
+            )
             while time.monotonic() < deadline:
                 chunk = port.read(1)
                 if not chunk:
                     continue
                 if chunk == b"\x04":
                     completed = True
+                    terminal_status = "DONE"
                     break
                 output.extend(chunk)
+                if image_type == ImageType.SELFTEST:
+                    if b"VGA:PASSED\r\n" in output:
+                        completed = True
+                        terminal_status = "PASSED"
+                        break
+                    if b"VGA:FAILED\r\n" in output:
+                        completed = True
+                        terminal_status = "FAILED"
+                        break
                 if len(output) >= 64 * 1024:
                     break
     except Exception as error:
         _progress_finish("运行失败", str(error))
         raise
+    program_output, events = _decode_runtime_output(bytes(output))
+    if not events:
+        events = ["RUNNING"]
+    if terminal_status and terminal_status not in events:
+        events.append(terminal_status)
     result = {
-        "output": output.decode("utf-8", "replace"),
+        "output": program_output,
         "completed": completed,
+        "vga_events": events,
+        "vga_status": terminal_status or events[-1],
     }
+    if image_type == ImageType.SELFTEST:
+        result["passed"] = terminal_status == "PASSED"
     if not completed:
         result["output"] += "\n[Studio: output capture timed out or exceeded 64 KiB]"
     _progress_finish("程序执行完成" if completed else "程序已启动，输出采集超时")

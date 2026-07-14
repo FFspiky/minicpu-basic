@@ -443,6 +443,10 @@ ex_ret:
 .org CODEBASE
 locate:
 
+    la.local  a0, vga_running_text
+    bl        uart_puts
+    NOP4
+
     LI (a0, LED_RG1_ADDR)
     LI (a1, LED_RG0_ADDR)
     LI (a2, LED_ADDR)
@@ -813,6 +817,8 @@ test_end:
     st.w    zero, a0, 0
     st.w    t1, a1, 0
     st.w    t1, a2, 0
+    la.local a0, vga_failed_text
+    bl      uart_puts
     li.w    a0, 0x1
     b  2f
     NOP4
@@ -823,6 +829,8 @@ test_end:
     NOP4
     st.w    t1, a0, 0
     st.w    t1, a1, 0
+    la.local a0, vga_passed_text
+    bl      uart_puts
     li.w    a0, 0
 
 2:
@@ -869,3 +877,33 @@ sub1:
     NOP4
     jirl    zero, ra, 0
     NOP4
+
+uart_puts:
+    LI (t0, UART_ADDR)
+    LI (t1, UART_STATUS_ADDR)
+1:
+    ld.bu   t2, a0, 0
+    beq     t2, zero, 3f
+    NOP4
+2:
+    # CONFREG reads are registered, use the settled second sample.
+    ld.w    t3, t1, 0
+    ld.w    t3, t1, 0
+    andi    t3, t3, 0x100
+    beq     t3, zero, 2b
+    NOP4
+    st.w    t2, t0, 0
+    addi.w  a0, a0, 1
+    b       1b
+    NOP4
+3:
+    jirl    zero, ra, 0
+    NOP4
+
+    .section .rodata
+vga_running_text:
+    .ascii  "VGA:RUNNING\r\n\0"
+vga_passed_text:
+    .ascii  "VGA:PASSED\r\n\0"
+vga_failed_text:
+    .ascii  "VGA:FAILED\r\n\0"
