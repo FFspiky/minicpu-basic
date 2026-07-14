@@ -180,11 +180,24 @@ class ProtocolTests(unittest.TestCase):
             progress=lambda *event: progress.append(event),
         )
         data = [request for request in stream.requests if request.frame_type == FrameType.DATA]
-        self.assertEqual([len(request.payload) for request in data], [260, 260, 260, 260, 5])
+        self.assertEqual(len(data), 15)
         self.assertEqual(
-            [struct.unpack_from("<I", request.payload)[0] for request in data],
+            [len(request.payload) for request in data[::3]],
+            [260, 260, 260, 260, 5],
+        )
+        self.assertEqual(
+            [struct.unpack_from("<I", request.payload)[0] for request in data[::3]],
             [0, 256, 512, 768, 1024],
         )
+        for group in range(0, len(data), 3):
+            self.assertEqual(data[group:group + 3], [data[group]] * 3)
+        side_effects = [
+            request.frame_type for request in stream.requests
+            if request.frame_type != FrameType.DATA
+        ]
+        self.assertEqual(side_effects, [
+            FrameType.INSTALL, FrameType.HEADER, FrameType.END,
+        ])
         self.assertEqual([event[0] for event in progress], [
             "prepare", "transfer", "transfer", "transfer", "transfer",
             "transfer", "commit", "done",
