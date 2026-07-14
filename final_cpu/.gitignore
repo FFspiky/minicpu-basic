@@ -12,3 +12,6 @@ run_vivado/checkpoints/*.txt
 # Local LCD vendor manuals and MCU example bundles; the build uses lib/lcd_module_cell.dcp.
 /【正点原子】4.3寸TFT LCD电容触摸屏模块800480/
 /NT35510.PDF
+
+# Retired standalone Vivado EDA project; use run_vivado for reproducible builds.
+/E/
