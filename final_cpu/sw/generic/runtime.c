@@ -5,14 +5,20 @@ typedef unsigned int u32;
 #define UART_DATA   (*(volatile u32 *)0xbfafff10u)
 #define UART_STATUS (*(volatile u32 *)0xbfafff14u)
 #define UART_TX_READY (1u << 8)
-#define UART_TX_BUSY  (1u << 9)
+
+static u32 uart_status_stable(void)
+{
+    (void)UART_STATUS;
+    return UART_STATUS;
+}
 
 static void uart_putc(char value)
 {
-    while (!(UART_STATUS & UART_TX_READY)) {}
+    /* CONFREG queues writes in its TX FIFO.  BUSY edge polling can miss a
+       registered transition and strand the application after VGA switches
+       to RUNNING, so only wait for confirmed FIFO space before enqueueing. */
+    while (!(uart_status_stable() & UART_TX_READY)) {}
     UART_DATA = (unsigned char)value;
-    while (!(UART_STATUS & UART_TX_BUSY)) {}
-    while (UART_STATUS & UART_TX_BUSY) {}
 }
 
 int putchar(int value)
