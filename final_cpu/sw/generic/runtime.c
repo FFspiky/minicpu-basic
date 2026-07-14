@@ -5,6 +5,16 @@ typedef unsigned int u32;
 #define UART_DATA   (*(volatile u32 *)0xbfafff10u)
 #define UART_STATUS (*(volatile u32 *)0xbfafff14u)
 #define UART_TX_READY (1u << 8)
+#define OUTPUT_DATA (*(volatile u32 *)0xbfaff050u)
+#define PROGRAM_STATUS (*(volatile u32 *)0xbfafff64u)
+
+static u32 last_output_value;
+
+void lcd_output(int value)
+{
+    last_output_value = (u32)value;
+    OUTPUT_DATA = last_output_value;
+}
 
 static u32 uart_status_stable(void)
 {
@@ -84,13 +94,18 @@ int printf(const char *format, ...)
             written++;
         } else if (*format == 'd') {
             int value = va_arg(arguments, int);
+            lcd_output(value);
             int count = print_int(value);
             written += count;
         } else if (*format == 'u') {
-            written += print_unsigned(va_arg(arguments, u32), 10u, 0);
+            u32 value = va_arg(arguments, u32);
+            lcd_output((int)value);
+            written += print_unsigned(value, 10u, 0);
         } else if (*format == 'x' || *format == 'X') {
             int upper = (*format == 'X');
-            written += print_unsigned(va_arg(arguments, u32), 16u, upper);
+            u32 value = va_arg(arguments, u32);
+            lcd_output((int)value);
+            written += print_unsigned(value, 16u, upper);
         } else if (*format == 'c') {
             putchar(va_arg(arguments, int));
             written++;
@@ -113,7 +128,11 @@ int printf(const char *format, ...)
 
 void la32_program_exit(int status)
 {
+    u32 saved_output = last_output_value;
     printf("\n[program exited: %d]\n", status);
+    last_output_value = saved_output;
+    OUTPUT_DATA = saved_output;
+    PROGRAM_STATUS = 4u;
     uart_putc(4);
     for (;;) {}
 }

@@ -58,7 +58,17 @@ module tb_generic_c_runtime;
                     $display("FAIL GENERIC C premature EOT");
                     $fatal;
                 end
-                $display("PASS GENERIC C runtime output prefix and EOT");
+                if(dut.num_data!==32'd3) begin
+                    $display("FAIL GENERIC C LCD/seven-segment output=%h expected=00000003",
+                             dut.num_data);
+                    $fatal;
+                end
+                if(dut.menu_status!==8'd4) begin
+                    $display("FAIL GENERIC C program status=%h expected=04",
+                             dut.menu_status);
+                    $fatal;
+                end
+                $display("PASS GENERIC C UART, LCD output value, and DONE status");
                 $finish;
             end
             output_count=output_count+1;

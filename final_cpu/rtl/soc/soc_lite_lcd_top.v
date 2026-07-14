@@ -476,7 +476,7 @@ module soc_lite_lcd_top #(
             6'd12:
             begin
                 display_valid_next = 1'b1;
-                display_name_next  = "NUM  ";
+                display_name_next  = "OUT: ";
                 display_value_next = num_data_lcd;
             end
             6'd13:
