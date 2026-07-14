@@ -3,7 +3,10 @@
 
 module soc_lite_lcd_top #(
     parameter SIMULATION  = 1'b0,
-    parameter SINGLE_STEP = 1'b1,
+    // Production menu launches must run to completion without requiring the
+    // educational STEP/RUN buttons.  Set this parameter back to 1 explicitly
+    // only for a dedicated pipeline single-step bitstream.
+    parameter SINGLE_STEP = 1'b0,
     parameter [31:0] END_PC = 32'h1c000100
 )
 (
