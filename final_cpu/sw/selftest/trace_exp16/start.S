@@ -5,6 +5,7 @@
 #include "test_config.h"
 
 #define TEST_NUM (TEST1*20 + TEST2*16 + TEST3*10 + TEST4*1 + TEST5*11 + TEST6*12 + TEST7*2 + TEST8*7 + TEST9*2)
+#define IDLE_MAX_LOOPS 500000
 
 
 #if TEST8
@@ -875,6 +876,18 @@ idle_1s:
     NOP4
     addi.w  t3, t3, 1
     NOP4
+
+    # The original switch-derived value can exceed 22 million.  With the
+    # NOP-heavy loop below and the board's 40 MHz CPU clock, one call can then
+    # take roughly 20 seconds and TEST1 alone exceeds Studio's 300 s timeout.
+    # Keep the visible pacing but bound it independently of switch position.
+    LI      (t5, IDLE_MAX_LOOPS)
+    sltu    t4, t5, t3
+    beq     t4, zero, 9f
+    NOP4
+    addi.w  t3, t5, 0
+    NOP4
+9:
 
 sub1:
     addi.w  t3, t3, -1
