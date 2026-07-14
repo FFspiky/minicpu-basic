@@ -158,19 +158,34 @@ module tb_boot_monitor_runtime;
     reg [15:0] frame_sequence,frame_length;
     reg [31:0] protected_before;
     initial begin
-        #250_000_000;
+        // A known-good complete run finishes at about 58.7 ms of simulated
+        // time.  Emit bounded progress so a regression cannot look like an
+        // unexplained multi-hour hang, then fail with useful state at 75 ms.
+        repeat(7) begin
+            #10_000_000;
+            $display("BOOT progress time=%0t pc=%h mode=%0d slot=%0d status=%h",
+                     $time,dut.debug_fetch_pc,system_mode,menu_selected,
+                     dut.menu_status);
+        end
+        #5_000_000;
         $display("FAIL BOOT watchdog pc=%h mode=%0d slot=%0d status=%h uart_status=%h",
                  dut.debug_fetch_pc,system_mode,menu_selected,
                  dut.menu_status,dut.u_confreg.uart_status);
         $fatal;
     end
     initial begin
+        // This protocol-focused testbench has no NAND flash model, so the
+        // physical data bus otherwise reads Z and poisons the software ID
+        // comparison with X.  Return a deterministic unsupported ID; the
+        // monitor must still leave LOADING and publish READY in that case.
+        force dut.u_confreg.u_nand_controller.id_data=40'd0;
         repeat(20)@(negedge clk);resetn=1;
 
         // Skip the text banner and wait for the framed READY notification.
         frame_type=0;
         while(frame_type!=1)
             receive_frame(frame_type,frame_sequence,frame_length,code);
+        release dut.u_confreg.u_nand_controller.id_data;
         if(frame_sequence!==0)begin $display("FAIL BOOT READY sequence");$fatal;end
         $display("PASS BOOT READY");
 
