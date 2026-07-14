@@ -8,7 +8,7 @@ $XdcFiles = @(
 )
 
 $ports = [System.Collections.Generic.List[string]]::new()
-$decl = [regex]'(?m)^[ \t]*(?:input|output|inout)[ \t]+(?:wire|reg)[ \t]+(?:\[(\d+)[ \t]*:[ \t]*(\d+)\][ \t]*)?(\w+)[ \t]*(?:[,;]|$)'
+$decl = [regex]'(?m)^[ \t]*(?:input|output|inout)[ \t]+(?:wire|reg)[ \t]+(?:\[(\d+)[ \t]*:[ \t]*(\d+)\][ \t]*)?(\w+)[ \t]*(?:[,;]|\r?$)'
 foreach ($match in $decl.Matches((Get-Content -Raw -LiteralPath $TopFile))) {
     $name = $match.Groups[3].Value
     if ($match.Groups[1].Success) {
