@@ -1,8 +1,16 @@
-create_project -force loongson ./project -part xc7a200tfbg676-1
+# Resolve paths from this Tcl file and let the trace runner choose an
+# alternate generated project directory.
+set script_dir [file normalize [file dirname [info script]]]
+cd $script_dir
+if {![info exists project_dir]} {
+    set project_dir [file normalize [file join $script_dir project]]
+}
+create_project -force loongson $project_dir -part xc7a200tfbg676-1
 
 # Add only the SoC sources used by the trace project. Avoid recursively
 # importing generated IP products or the LCD-only top level.
 add_files -scan_for_includes [list \
+    ../rtl/soc_lite_board_top.v \
     ../rtl/soc_lite_top.v \
     ../rtl/BRIDGE/bridge_1x2.v \
     ../rtl/CONFREG/confreg.v \
@@ -45,8 +53,12 @@ add_files -scan_for_includes $mycpu_files
 # Add constraints
 add_files -fileset constrs_1 -quiet ./constraints/soc_lite_top.xdc
 
-set_property -name "top" -value "soc_lite_top" -objects [get_filesets sources_1]
+# Use the pin-clean wrapper for synthesis/implementation.  The simulation
+# fileset still uses tb_top, which directly instantiates soc_lite_top and can
+# observe every pipeline debug signal without consuming physical I/O.
+set_property -name "top" -value "soc_lite_board_top" -objects [get_filesets sources_1]
 set_property -name "top" -value "tb_top" -objects  [get_filesets sim_1]
-set_property -name "xsim.simulate.log_all_signals" -value "1" -objects [get_filesets sim_1]
+set_property -name "xsim.simulate.log_all_signals" -value "0" -objects [get_filesets sim_1]
+set_property -name "xsim.simulate.runtime" -value "0ns" -objects [get_filesets sim_1]
 update_compile_order -fileset sources_1
 update_compile_order -fileset sim_1
