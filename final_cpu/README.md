@@ -2,6 +2,8 @@
 
 `final_cpu` 是唯一需要综合和上板的工程。FPGA 比特流中包含流水线 LA32R CPU、统一 RAM、Boot Monitor、UART、NAND 控制器、VGA 程序菜单、赛车显示硬件及固定的 LCD CPU 调试界面。
 
+> **上板必须使用稳定验证 bitstream：** 请从 [GitHub Releases](https://github.com/FFspiky/minicpu-basic/releases/latest) 下载随正式 Release 发布的 `soc_lite_lcd_top-stable-*.bit`，并用 Vivado Hardware Manager 通过 JTAG 下载到 FPGA。不要使用工程目录中的临时生成 bitstream，也不要把仅完成综合/实现但未经完整实板验收的 bitstream 用于课程展示。Release 中的稳定文件已经完成时序、DRC、断电重配置、NAND 保持、UART 下载、菜单返回及赛车/EXP16/通用程序验收。
+
 ## 展示流程
 
 ```text
