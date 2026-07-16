@@ -196,6 +196,31 @@
     }
     .section-header h2 { margin: 0; font-size: 14px; font-weight: 650; }
     .section-header p { margin: 0; color: var(--muted); font-size: 12px; }
+    .section-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+    .mode-switch {
+      display: inline-flex;
+      padding: 2px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius);
+      background: #eef1f5;
+    }
+    .mode-switch button {
+      min-height: 28px;
+      padding: 3px 12px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .mode-switch button.active {
+      background: var(--surface);
+      color: var(--accent);
+      box-shadow: 0 1px 2px rgb(15 23 42 / 12%);
+      font-weight: 650;
+    }
+    .auto-build { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+    .auto-build input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
 
     .code-grid { display: grid; grid-template-columns: 1fr 1fr; }
     .code-pane { min-width: 0; }
@@ -290,6 +315,7 @@
       .code-pane + .code-pane { border-left: 0; border-top: 1px solid var(--border); }
       .artifact-bar { width: 100%; margin-left: 0; text-align: left; }
       .control-separator { display: none; }
+      .section-header { align-items: flex-start; flex-direction: column; }
     }
   </style>
 </head>
@@ -319,8 +345,8 @@
       <span class="control-separator"></span>
 
       <div class="control-group">
-        <button type="button" data-build onclick="buildGeneric()">构建当前 C</button>
-        <button type="button" class="primary" data-board onclick="runGeneric()">构建并运行</button>
+        <button id="build-current" type="button" data-build onclick="buildCurrent()">构建当前 C</button>
+        <button id="run-current" type="button" class="primary" data-board onclick="runCurrent()">构建并运行 C</button>
         <button type="button" data-build onclick="buildRacing()">构建赛车</button>
         <button type="button" data-build onclick="buildSelftest()">构建流水线 EXP16</button>
       </div>
@@ -361,16 +387,26 @@
       <div class="section-header">
         <div>
           <h2>构建工作区</h2>
-          <p>左侧为输入源码，右侧为送入自研汇编器的LA32R汇编。</p>
+          <p id="workspace-help">C 源码先由 GCC 生成 LA32R 汇编，再由自研汇编器转换为机器指令。</p>
+        </div>
+        <div class="section-actions">
+          <div class="mode-switch" role="tablist" aria-label="源码语言">
+            <button type="button" class="active" role="tab" aria-selected="true" data-mode="c" onclick="switchMode('c')">C 语言</button>
+            <button type="button" role="tab" aria-selected="false" data-mode="assembly" onclick="switchMode('assembly')">LA32R 汇编</button>
+          </div>
+          <label class="auto-build" for="auto-build">
+            <input id="auto-build" type="checkbox" checked>
+            停止输入后自动构建
+          </label>
         </div>
       </div>
       <div class="code-grid">
         <article class="code-pane">
           <div class="pane-header">
             <h3 id="source-title">输入源码</h3>
-            <button type="button" class="copy-button" onclick="copyText('csource')">复制</button>
+            <button type="button" class="copy-button" onclick="copyText('source-editor')">复制</button>
           </div>
-          <textarea id="csource" class="code-editor" spellcheck="false">int printf(const char *format, ...);
+          <textarea id="source-editor" class="code-editor" spellcheck="false">int printf(const char *format, ...);
 
 int main(void)
 {
@@ -406,7 +442,7 @@ int main(void)
       <div class="section-header">
         <div>
           <h2>板端程序输出</h2>
-          <p>通用 C 程序的 putchar、puts 和简化 printf 经 UART 返回；VGA 同时显示 GENERIC PROGRAM / RUNNING。</p>
+          <p id="output-help">通用 C 程序的 putchar、puts 和简化 printf 经 UART 返回；VGA 同时显示 GENERIC PROGRAM / RUNNING。</p>
         </div>
         <button type="button" onclick="copyText('program-output')">复制输出</button>
       </div>
@@ -437,8 +473,23 @@ int main(void)
     let currentImage = null;
     let currentArtifact = null;
     let progressTimer = null;
+    let editorMode = 'c';
+    let autoBuildTimer = null;
+    let buildInFlight = false;
+    let buildPending = false;
     const $ = id => document.getElementById(id);
     const disconnected = '无法连接本地服务。请重新运行 start_studio.ps1，并保持 PowerShell 窗口开启。';
+    const assemblySample = `.text
+.globl _start
+_start:
+    li.w    $a0, 1
+    li.w    $a1, 2
+    add.w   $a2, $a0, $a1
+    b       done
+done:
+    b       done
+`;
+    const sourceDrafts = { c: '', assembly: assemblySample };
 
     function timestamp() {
       return new Date().toLocaleTimeString('zh-CN', { hour12: false });
@@ -591,38 +642,102 @@ int main(void)
     }
 
     function sourceText() {
-      return $('csource').value;
+      return $('source-editor').value;
     }
 
-    function showBuild(result, name, sourceName, assemblyName) {
+    function showBuild(result, name, sourceName, assemblyName, translated) {
       setArtifact(name, result.image_size, result.image);
       $('source-title').textContent = sourceName;
       $('assembly-title').textContent = assemblyName;
-      $('csource').value = result.c_source;
-      $('assembly').textContent = result.assembly;
+      $('assembly').textContent = translated;
       $('listing').textContent = result.listing;
     }
 
-    async function buildGeneric() {
-      setBusy(true, '正在构建当前 C：GCC -S → 自研汇编 → LA32IMG');
+    function switchMode(mode) {
+      if (!['c', 'assembly'].includes(mode) || mode === editorMode) return;
+      clearTimeout(autoBuildTimer);
+      sourceDrafts[editorMode] = sourceText();
+      editorMode = mode;
+      $('source-editor').value = sourceDrafts[mode];
+      document.querySelectorAll('[data-mode]').forEach(button => {
+        const selected = button.dataset.mode === mode;
+        button.classList.toggle('active', selected);
+        button.setAttribute('aria-selected', String(selected));
+      });
+      const assembly = mode === 'assembly';
+      $('build-current').textContent = assembly ? '汇编为机器指令' : '构建当前 C';
+      $('run-current').textContent = assembly ? '汇编并运行' : '构建并运行 C';
+      $('source-title').textContent = assembly ? 'playground.S（可编辑）' : 'playground.c（可编辑）';
+      $('assembly-title').textContent = assembly ? '机器指令（地址 : 十六进制）' : 'GCC 生成的 LA32R 汇编';
+      $('workspace-help').textContent = assembly
+        ? '汇编源码直接送入自研两遍汇编器；支持 EXP16 n1–n58 使用的指令、伪指令、标签和数据指令。'
+        : 'C 源码先由 GCC 生成 LA32R 汇编，再由自研汇编器转换为机器指令。';
+      $('output-help').textContent = assembly
+        ? '完整汇编程序可构建为 LA32IMG 并在开发板临时运行；仅编码片段也可生成机器指令清单。'
+        : '通用 C 程序的 putchar、puts 和简化 printf 经 UART 返回；VGA 同时显示 GENERIC PROGRAM / RUNNING。';
+      $('assembly').textContent = assembly ? '等待汇编源码转换。' : '等待 C 源码构建。';
+      $('listing').textContent = '尚无当前模式的构建输出。';
+      currentImage = null;
+      currentArtifact = null;
+      $('artifact').textContent = '当前模式尚未构建';
+      scheduleAutoBuild();
+    }
+
+    function scheduleAutoBuild() {
+      sourceDrafts[editorMode] = sourceText();
+      clearTimeout(autoBuildTimer);
+      if (!$('auto-build').checked || !sourceText().trim()) return;
+      autoBuildTimer = setTimeout(() => {
+        if (buildInFlight) {
+          buildPending = true;
+          return;
+        }
+        buildCurrent(true);
+      }, 900);
+    }
+
+    async function buildCurrent(automatic = false) {
+      const assemblyMode = editorMode === 'assembly';
+      const source = sourceText();
+      const path = assemblyMode ? '/api/build/assembly' : '/api/build/generic';
+      const pipeline = assemblyMode
+        ? '自研汇编器 → 机器指令 → LA32IMG'
+        : 'GCC -S → 自研汇编 → LA32IMG';
+      buildInFlight = true;
+      setBusy(true, `${automatic ? '自动构建' : '正在构建'}：${pipeline}`);
       try {
-        const result = await api('/api/build/generic', { source: sourceText() });
-        showBuild(result, 'C Playground', 'playground.c（可编辑）', 'playground.gcc.s');
+        const result = await api(path, { source });
+        if (assemblyMode) {
+          showBuild(result, 'Assembly Playground', 'playground.S（可编辑）', '机器指令（地址 : 十六进制）', result.machine_code);
+        } else {
+          showBuild(result, 'C Playground', 'playground.c（可编辑）', 'playground.gcc.s', result.assembly);
+        }
         $('program-output').textContent = '构建完成；点击“构建并运行”可查看开发板真实输出。';
-        state(`通用 C 构建完成，共 ${result.image_size.toLocaleString('zh-CN')} 字节`, 'ok');
+        const detail = assemblyMode ? `，${result.instruction_words} 个32位字` : '';
+        state(`${assemblyMode ? '汇编源码构建完成' : '通用 C 构建完成'}${detail}，镜像共 ${result.image_size.toLocaleString('zh-CN')} 字节`, 'ok');
       } catch (error) {
         state(error.message, 'error');
       } finally {
+        buildInFlight = false;
         setBusy(false);
+        if (buildPending) {
+          buildPending = false;
+          scheduleAutoBuild();
+        }
       }
     }
 
-    async function runGeneric() {
+    async function runCurrent() {
       try {
         const port = selectedPort();
-        setBusy(true, '正在构建当前 C：GCC -S → 自研汇编 → LA32IMG');
-        const build = await api('/api/build/generic', { source: sourceText() });
-        showBuild(build, 'C Playground', 'playground.c（可编辑）', 'playground.gcc.s');
+        const assemblyMode = editorMode === 'assembly';
+        setBusy(true, assemblyMode ? '正在将汇编源码转换为机器指令与 LA32IMG' : '正在构建当前 C：GCC -S → 自研汇编 → LA32IMG');
+        const build = await api(assemblyMode ? '/api/build/assembly' : '/api/build/generic', { source: sourceText() });
+        if (assemblyMode) {
+          showBuild(build, 'Assembly Playground', 'playground.S（可编辑）', '机器指令（地址 : 十六进制）', build.machine_code);
+        } else {
+          showBuild(build, 'C Playground', 'playground.c（可编辑）', 'playground.gcc.s', build.assembly);
+        }
         state('构建完成，正在连接板端菜单；如果板子仍在运行应用，请短按一次实体复位', '');
         const run = await boardApi('/api/run/image', { image: build.image, port }, '正在连接 Boot Monitor');
         $('program-output').textContent = run.output || '(程序没有输出)';
@@ -641,7 +756,8 @@ int main(void)
         setArtifact('Racing Game', result.image_size, result.image);
         $('source-title').textContent = 'racing_game.c';
         $('assembly-title').textContent = 'racing_game.gcc.s';
-        $('csource').value = result.c_source;
+        $('source-editor').value = result.c_source;
+        sourceDrafts[editorMode] = result.c_source;
         $('assembly').textContent = result.assembly;
         $('listing').textContent = result.listing;
         state(`赛车构建完成，共 ${result.image_size.toLocaleString('zh-CN')} 字节`, 'ok');
@@ -659,7 +775,8 @@ int main(void)
         setArtifact('Pipeline EXP16', result.image_size, result.image);
         $('source-title').textContent = 'EXP16 原始源码与构建摘要';
         $('assembly-title').textContent = 'GCC 预处理输出 / start.S';
-        $('csource').value = result.c_source;
+        $('source-editor').value = result.c_source;
+        sourceDrafts[editorMode] = result.c_source;
         $('assembly').textContent = result.assembly;
         $('listing').textContent = result.listing;
         state(`EXP16 构建完成：n1–n58，共 ${result.image_size.toLocaleString('zh-CN')} 字节；尚未在板上运行`, 'ok');
@@ -753,6 +870,9 @@ int main(void)
       }
     }
 
+    sourceDrafts.c = sourceText();
+    $('source-editor').addEventListener('input', scheduleAutoBuild);
+    $('auto-build').addEventListener('change', scheduleAutoBuild);
     renderEmptySlots();
     ports();
   </script>
