@@ -1,5 +1,4 @@
 `default_nettype none
-`include "mycpu_exp16_sources.vh"
 
 `define SIMU_USE_PLL 0
 
