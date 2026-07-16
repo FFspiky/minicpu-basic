@@ -1,4 +1,14 @@
-使用memory initialization file(.mif)，默认为../func/obj/inst_ram.mif。
-更换mif可直接替换项目中mif文件，若更改文件名还需修改soc_lite_top.v中INST_COE的定义。
+# Golden Trace Reference Environment
 
-全部SOC为单周期，CPI=1，用于快速进行仿真。
+本目录使用参考 SoC 为流水线 CPU 生成 `golden_trace.txt`。参考 SoC 采用便于快速仿真的顺序执行模型，其 CPI 不代表被测流水线的性能；验收只比较架构可见的写回和提交结果。
+
+参考环境读取 `../func/obj/inst_ram.mif`。如更换镜像文件名，还需同步修改 `src/soc_lite_top.v` 中的 `INST_COE` 定义。
+
+在 Windows PowerShell 中运行：
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' `
+  -mode batch -source 'D:\CPU_DESIGN\cdp_ede_pipeline\mycpu_env\gettrace\run_gettrace_sim.tcl'
+```
+
+更新测试镜像后必须重新生成 trace，并运行 `soc_bram/run_vivado/run_soc_bram_sim.tcl` 完成流水线对拍。提交时应保证 ROM 镜像与 `golden_trace.txt` 来自同一测试配置。

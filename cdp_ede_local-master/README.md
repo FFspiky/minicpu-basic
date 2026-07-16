@@ -1,53 +1,94 @@
-# CDP/EDE Single-Cycle Environment
+# CDP/EDE 单周期 CPU
 
-本目录固定为单周期 CPU 环境。
+本目录是固定的单周期 CPU 教学与验证环境，当前正式基线面向 EXP6。CPU RTL、测试镜像、golden trace、行为仿真和上板工程均在本目录内维护，不与流水线工程混用。
 
-- CPU RTL：`mycpu_env/myCPU`
-- golden trace：`mycpu_env/gettrace`
-- trace 对拍：`mycpu_env/soc_verify/soc_dram/run_vivado/project`
-- LCD 上板工程：`mycpu_env/soc_verify/soc_dram/run_vivado/project_lcd`
+## 功能范围
 
-常用命令：
+- EXP6 共 20 个功能测试点；
+- 支持基础算术、逻辑、移位、加载/存储和分支跳转指令；
+- 普通指令按单周期数据通路执行；
+- 同步 BRAM 的 `ld.w` 使用一个显式等待周期完成数据返回；
+- 不提供流水线前递、冒险检测或多级 valid 控制。
 
-```powershell
-wsl -d Ubuntu-24.04 -- bash /mnt/d/CPU_DESIGN/scripts/build_func_exp6.sh 16 cdp_ede_local-master
-& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\gettrace\run_gettrace_sim.tcl'
-& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_dram\run_vivado\run_soc_dram_sim.tcl'
-```
+EXP8、EXP9 和 EXP16 的流水线冒险或扩展指令验收不属于本工程范围。
 
-## BRAM board path
+## 目录结构
 
-- `soc_bram` is now the main single-cycle trace and board environment.
-- `soc_dram` remains as a compatibility/reference environment.
-- The CPU follows the reviewed single-cycle datapath: decoder, control, immediate extension, two-read-port register file, ALU, branch unit, LSU, CSR/exception controller, counter, and iterative mul/div unit.
-- Ordinary EXP16 instructions retire in one clock; synchronous BRAM loads use one explicit wait state and iterative multiply/divide operations hold the core until completion.
-- Default and acceptance testing for this single-cycle environment is EXP16 (`n1`~`n58`).
-- EXP8/EXP9 are for pipeline no-NOP hazard validation; an EXP9 log in this directory is not evidence of pipeline-style hazard handling.
-- The datapath review and known diagram corrections are documented in `mycpu_env/myCPU/SINGLE_CYCLE_DATAPATH_AUDIT.md`.
-- BRAM trace simulation:
+| 路径 | 内容 |
+|---|---|
+| `mycpu_env/myCPU/` | 单周期 CPU RTL，顶层为 `mycpu_top` |
+| `mycpu_env/func/` | 功能测试源码和已提交的 EXP6 ROM 镜像 |
+| `mycpu_env/gettrace/` | golden trace 生成环境 |
+| `mycpu_env/soc_verify/soc_bram/` | 主验证与上板环境 |
+| `mycpu_env/soc_verify/soc_dram/` | 兼容和参考环境 |
 
-```powershell
-& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_bram\run_vivado\run_soc_bram_sim.tcl'
-```
+主板级顶层为 `mycpu_env/soc_verify/soc_bram/rtl/soc_lite_lcd_top.v`。
 
-- BRAM LCD smoke simulation:
+## EXP6 对拍
+
+仓库中的 `mycpu_env/func/obj/inst_ram.mif`、`inst_ram.coe` 和 `mycpu_env/gettrace/golden_trace.txt` 已组成一致的 EXP6 基线，可直接运行：
 
 ```powershell
-& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_bram\run_vivado\run_soc_bram_lcd_sim.tcl'
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' `
+  -mode batch -nolog -nojournal -notrace `
+  -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_bram\run_vivado\run_soc_bram_sim.tcl'
 ```
 
-- BRAM board project:
+通过标准为 20 个功能测试点全部 PASS，最终输出：
+
+```text
+----PASS!!!
+```
+
+如需重新生成 golden trace：
 
 ```powershell
-& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_bram\run_vivado\create_board_project.tcl'
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' `
+  -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\gettrace\run_gettrace_sim.tcl'
 ```
 
-- BRAM bitstream script, intended to be run manually:
+## 重建 EXP6 镜像
+
+仅在已安装 LA32R 交叉编译工具链时执行：
 
 ```powershell
-& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_bram\run_vivado\run_soc_bram_lcd_impl.tcl'
+wsl.exe -d Ubuntu-24.04 -- bash -lc `
+  "cd /mnt/d/CPU_DESIGN/cdp_ede_local-master/mycpu_env/func && make clean && make EXP=6"
 ```
 
-- If the EXP program is changed before board generation, use `run_soc_bram_lcd_clean_impl.tcl` once to rebuild the project and generated IP products cleanly.
-- STEP mode runs until one instruction commits; RUN mode stops when `END_PC = 32'h1c000100` commits.
-- Timing reports are written to `mycpu_env\soc_verify\soc_bram\run_vivado\reports`.
+重建镜像后必须同步重建 golden trace，并重新运行 BRAM 对拍；不要提交镜像与 trace 不匹配的状态。
+
+## LCD 仿真与上板
+
+LCD 行为仿真：
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' `
+  -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_bram\run_vivado\run_soc_bram_lcd_sim.tcl'
+```
+
+创建可在 Vivado GUI 中打开的工程：
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' `
+  -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_bram\run_vivado\create_board_project.tcl'
+```
+
+完整实现和 bitstream：
+
+```powershell
+& 'D:\Vivado\Vivado\2019.2\bin\vivado.bat' `
+  -mode batch -source 'D:\CPU_DESIGN\cdp_ede_local-master\mycpu_env\soc_verify\soc_bram\run_vivado\run_soc_bram_lcd_clean_impl.tcl'
+```
+
+上板工程依赖仓库根目录的 `lcd_module_cell.dcp`。该文件是受版本控制的构建输入。
+
+## 调试接口
+
+- STEP：运行到下一次有效提交；
+- RUN：运行到默认结束 PC `0x1c000100`；
+- `PVLD[1:0]`：`{load-wait, execute-valid}`；
+- `HZD[0]`：同步加载等待；
+- LCD 页面包含写回 PC、指令、寄存器、提交、周期、运行状态和开关输入。
+
+Vivado 生成的工程、IP 输出、波形、报告和 bitstream 均为本地产物，不纳入版本管理。
