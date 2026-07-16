@@ -25,7 +25,6 @@ xsim.dir/
 *.vds
 
 # Keep the LCD pre-synthesized module used by the top-level project.
-!lcd_module.dcp
 !lcd_module_cell.dcp
 !final_cpu/lib/lcd_module_cell.dcp
 
