@@ -1,13 +1,14 @@
 import struct
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from la32asm.assembler import Assembler, AssemblyError
-from la32asm.image import Image, ImageError, ImageType
+from la32asm.image import APP_START, Image, ImageError, ImageType
 from la32asm.protocol import Downloader, Frame, FrameType, SOF
 from la32asm.cli import _connect_board, _send_break_reset
 from la32asm.studio import (
-    _boot_monitor, _decode_runtime_output, _probe_monitor,
+    _boot_monitor, _decode_runtime_output, _probe_monitor, build_assembly,
     read_directory_slots, read_ui_status,
 )
 
@@ -124,6 +125,95 @@ class ImageTests(unittest.TestCase):
         self.assertEqual(parsed.name, "x")
         damaged = bytearray(blob); damaged[-1] ^= 1
         with self.assertRaises(ImageError): Image.unpack(bytes(damaged))
+
+
+class StudioAssemblyTests(unittest.TestCase):
+    def test_direct_assembly_build_emits_machine_code_and_fpga_formats(self):
+        report = build_assembly("""
+.text
+.globl _start
+_start:
+    li.w $a0, 1
+    li.w $a1, 2
+    add.w $a2, $a0, $a1
+1:  b 1b
+""")
+        self.assertEqual(report["assembly_source"].lstrip().splitlines()[0], ".text")
+        self.assertIn(f"{APP_START:08x}:", report["machine_code"])
+        self.assertIn("add.w", report["listing"])
+        self.assertGreaterEqual(report["instruction_words"], 4)
+        for key in ("image", "binary", "mif", "coe"):
+            self.assertTrue(Path(report[key]).is_file(), key)
+
+    def test_direct_assembly_accepts_exp16_instruction_families(self):
+        report = build_assembly("""
+.text
+_start:
+    add.w $a0,$a1,$a2
+    sub.w $a0,$a1,$a2
+    slt $a0,$a1,$a2
+    sltu $a0,$a1,$a2
+    nor $a0,$a1,$a2
+    and $a0,$a1,$a2
+    or $a0,$a1,$a2
+    xor $a0,$a1,$a2
+    sll.w $a0,$a1,$a2
+    srl.w $a0,$a1,$a2
+    sra.w $a0,$a1,$a2
+    mul.w $a0,$a1,$a2
+    mulh.w $a0,$a1,$a2
+    mulh.wu $a0,$a1,$a2
+    div.w $a0,$a1,$a2
+    mod.w $a0,$a1,$a2
+    div.wu $a0,$a1,$a2
+    mod.wu $a0,$a1,$a2
+    slli.w $a0,$a1,3
+    srli.w $a0,$a1,3
+    srai.w $a0,$a1,3
+    slti $a0,$a1,-1
+    sltui $a0,$a1,1
+    addi.w $a0,$a1,-1
+    andi $a0,$a1,1
+    ori $a0,$a1,1
+    xori $a0,$a1,1
+    lu12i.w $a0,1
+    pcaddu12i $a0,1
+    ld.b $a0,0($a1)
+    ld.h $a0,0($a1)
+    ld.w $a0,0($a1)
+    ld.bu $a0,0($a1)
+    ld.hu $a0,0($a1)
+    st.b $a0,0($a1)
+    st.h $a0,0($a1)
+    st.w $a0,0($a1)
+    beq $a0,$a1,1f
+    bne $a0,$a1,1f
+    blt $a0,$a1,1f
+    bge $a0,$a1,1f
+    bltu $a0,$a1,1f
+    bgeu $a0,$a1,1f
+    b 1f
+    bl 1f
+    jirl $zero,$ra,0
+    csrrd $a0,0
+    csrwr $a0,0
+    csrxchg $a0,$a1,0
+    syscall 0
+    break 0
+    ertn
+    tlbsrch
+    tlbrd
+    tlbwr
+    tlbfill
+    rdcntvl.w $a0
+    rdcntvh.w $a0
+    rdcntid.w $a0
+    invtlb 0,$a0,$a1
+    cacop 0,$a0,0
+1:  nop
+""")
+        self.assertGreaterEqual(report["instruction_words"], 62)
+        self.assertIn("cacop", report["listing"])
 
 
 class ProtocolTests(unittest.TestCase):

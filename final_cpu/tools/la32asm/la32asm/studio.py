@@ -14,7 +14,7 @@ import time
 from pydantic import BaseModel
 
 from .assembler import Assembler
-from .image import Image, ImageType
+from .image import APP_START, Image, ImageType
 from .protocol import Downloader, FrameType
 
 FINAL_CPU = Path(__file__).resolve().parents[3]
@@ -339,6 +339,65 @@ def build_generic(source_text: str) -> dict:
     }
 
 
+def build_assembly(source_text: str) -> dict:
+    """Assemble Studio source directly with the in-tree LA32R assembler."""
+    if not source_text.strip():
+        raise ValueError("assembly source is empty")
+    if len(source_text.encode("utf-8")) > 64 * 1024:
+        raise ValueError("assembly source exceeds the 64 KiB Studio limit")
+
+    BUILD.mkdir(parents=True, exist_ok=True)
+    source = BUILD / "playground.S"
+    source.write_text(source_text, encoding="utf-8")
+    # A complete program normally declares _start.  Accept instruction
+    # snippets as well so Studio can be used as a live instruction encoder.
+    entry: str | int = (
+        "_start"
+        if re.search(r"(?m)^\s*_start\s*:", source_text)
+        else APP_START
+    )
+    result = Assembler().assemble(
+        [(str(source), source_text)],
+        name="Assembly Playground",
+        image_type=ImageType.GENERIC,
+        entry=entry,
+    )
+    image_path = BUILD / "assembly-playground.la32img"
+    binary_path = BUILD / "assembly-playground.bin"
+    mif_path = BUILD / "assembly-playground.mif"
+    coe_path = BUILD / "assembly-playground.coe"
+    listing_path = BUILD / "assembly-playground.lst"
+    image_blob = result.image.pack()
+    binary_blob = result.binary
+    image_path.write_bytes(image_blob)
+    binary_path.write_bytes(binary_blob)
+    mif_path.write_text(result.mif(), encoding="ascii")
+    coe_path.write_text(result.coe(), encoding="ascii")
+    listing_path.write_text(result.listing, encoding="utf-8")
+
+    words = [
+        int.from_bytes(binary_blob[offset:offset + 4].ljust(4, b"\0"), "little")
+        for offset in range(0, len(binary_blob), 4)
+    ]
+    machine_code = "\n".join(
+        f"{APP_START + index * 4:08x}: {word:08x}"
+        for index, word in enumerate(words)
+    )
+    return {
+        "assembly_source": source_text,
+        "assembly": source_text,
+        "machine_code": machine_code,
+        "listing": result.listing,
+        "image": str(image_path),
+        "binary": str(binary_path),
+        "mif": str(mif_path),
+        "coe": str(coe_path),
+        "image_size": len(image_blob),
+        "instruction_words": len(words),
+        "symbols": result.symbols,
+    }
+
+
 def _decode_runtime_output(payload: bytes) -> tuple[str, list[str]]:
     decoded = payload.decode("utf-8", "replace")
     events = VGA_EVENT_PATTERN.findall(decoded)
@@ -543,6 +602,11 @@ def create_app():
     def build_user_program(req:SourceRequest):
         try:
             with BUILD_LOCK:return build_generic(req.source)
+        except Exception as e:raise HTTPException(500,str(e))
+    @app.post("/api/build/assembly")
+    def build_user_assembly(req:SourceRequest):
+        try:
+            with BUILD_LOCK:return build_assembly(req.source)
         except Exception as e:raise HTTPException(500,str(e))
     @app.post("/api/run/generic")
     def run_user_program(req:RunSourceRequest):
