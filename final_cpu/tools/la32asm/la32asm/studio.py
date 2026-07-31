@@ -20,6 +20,7 @@ from .protocol import Downloader, FrameType
 FINAL_CPU = Path(__file__).resolve().parents[3]
 BUILD = FINAL_CPU / "tools" / "la32asm" / "build"
 STATIC = FINAL_CPU / "tools" / "la32asm" / "studio"
+ARTIFACT_ROOTS = (BUILD, FINAL_CPU / "sw" / "selftest" / "build")
 SERIAL_LOCK = threading.Lock()
 BUILD_LOCK = threading.Lock()
 PROGRESS_LOCK = threading.Lock()
@@ -50,6 +51,10 @@ _PROGRESS = {
     "updated_at": 0.0,
     "error": "",
 }
+
+
+def _artifact_info(path: Path) -> dict:
+    return {"name": path.name, "size": path.stat().st_size}
 
 
 def _progress_begin(operation: str, detail: str, bytes_total: int = 0) -> None:
@@ -288,8 +293,9 @@ def build_racing() -> dict:
         name="Racing Game", image_type=ImageType.GAME, entry="_start"
     )
     image_path = BUILD / "racing.la32img"
+    listing_path = BUILD / "racing.lst"
     image_path.write_bytes(result.image.pack())
-    (BUILD / "racing.lst").write_text(result.listing, encoding="utf-8")
+    listing_path.write_text(result.listing, encoding="utf-8")
     report = {
         "c_source": source.read_text(encoding="utf-8"),
         "assembly": generated.read_text(encoding="utf-8"),
@@ -297,6 +303,11 @@ def build_racing() -> dict:
         "image": str(image_path),
         "image_size": len(result.image.pack()),
         "symbols": result.symbols,
+        "artifacts": {
+            "LA32IMG": _artifact_info(image_path),
+            "Listing": _artifact_info(listing_path),
+            "GCC 汇编": _artifact_info(generated),
+        },
     }
     (BUILD / "racing-report.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
     return report
@@ -320,22 +331,31 @@ def build_generic(source_text: str) -> dict:
         name="C Playground", image_type=ImageType.GENERIC, entry="_start",
     )
     image_path = BUILD / "playground.la32img"
+    binary_path = BUILD / "playground.bin"
+    mif_path = BUILD / "playground.mif"
     image_blob = result.image.pack()
     image_path.write_bytes(image_blob)
     listing_path = BUILD / "playground.lst"
     listing_path.write_text(result.listing, encoding="utf-8")
-    (BUILD / "playground.bin").write_bytes(result.binary)
-    (BUILD / "playground.mif").write_text(result.mif(), encoding="ascii")
+    binary_path.write_bytes(result.binary)
+    mif_path.write_text(result.mif(), encoding="ascii")
     return {
         "c_source": source_text,
         "assembly": generated.read_text(encoding="utf-8"),
         "runtime_assembly": runtime_assembly.read_text(encoding="utf-8"),
         "listing": result.listing,
         "image": str(image_path),
-        "binary": str(BUILD / "playground.bin"),
+        "binary": str(binary_path),
         "image_size": len(image_blob),
         "symbols": result.symbols,
         "compiler_messages": compiler_messages,
+        "artifacts": {
+            "LA32IMG": _artifact_info(image_path),
+            "BIN": _artifact_info(binary_path),
+            "MIF": _artifact_info(mif_path),
+            "Listing": _artifact_info(listing_path),
+            "GCC 汇编": _artifact_info(generated),
+        },
     }
 
 
@@ -395,6 +415,13 @@ def build_assembly(source_text: str) -> dict:
         "image_size": len(image_blob),
         "instruction_words": len(words),
         "symbols": result.symbols,
+        "artifacts": {
+            "LA32IMG": _artifact_info(image_path),
+            "BIN": _artifact_info(binary_path),
+            "MIF": _artifact_info(mif_path),
+            "COE": _artifact_info(coe_path),
+            "Listing": _artifact_info(listing_path),
+        },
     }
 
 
@@ -498,7 +525,12 @@ def build_selftest() -> dict:
             "assembly":generated.read_text(encoding="utf-8"),
             "listing":listing_text,"listing_path":str(listing_path),
             "image":str(image_path),"image_size":image_path.stat().st_size,
-            "report":report}
+            "report":report,
+            "artifacts":{
+                "LA32IMG":_artifact_info(image_path),
+                "Listing":_artifact_info(listing_path),
+                "构建报告":_artifact_info(product.with_suffix(".json")),
+            }}
 
 
 DIRECTORY_HEADER = struct.Struct("<IIHH")
@@ -590,6 +622,18 @@ def create_app():
         except Exception as e: raise HTTPException(500,str(e))
     @app.get("/api/progress")
     def progress(): return _progress_snapshot()
+    @app.get("/api/artifacts/{name}")
+    def artifact(name: str):
+        if Path(name).name != name:
+            raise HTTPException(404, "artifact not found")
+        for root in ARTIFACT_ROOTS:
+            candidate = root / name
+            if candidate.is_file():
+                return FileResponse(
+                    candidate, filename=candidate.name,
+                    media_type="application/octet-stream"
+                )
+        raise HTTPException(404, "artifact not found")
     @app.post("/api/build/racing")
     def build():
         try:return build_racing()

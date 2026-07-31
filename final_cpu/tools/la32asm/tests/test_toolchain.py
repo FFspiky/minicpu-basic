@@ -9,7 +9,7 @@ from la32asm.protocol import Downloader, Frame, FrameType, SOF
 from la32asm.cli import _connect_board, _send_break_reset
 from la32asm.studio import (
     _boot_monitor, _decode_runtime_output, _probe_monitor, build_assembly,
-    read_directory_slots, read_ui_status,
+    create_app, read_directory_slots, read_ui_status,
 )
 
 
@@ -128,6 +128,32 @@ class ImageTests(unittest.TestCase):
 
 
 class StudioAssemblyTests(unittest.TestCase):
+    def test_studio_page_imports_local_assembly_files_and_builds_them(self):
+        page = (
+            Path(__file__).resolve().parents[1] / "studio" / "index.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn('id="assembly-file"', page)
+        self.assertIn('accept=".S,.s,.asm,.txt,text/plain"', page)
+        self.assertIn("async function loadAssemblyFile(event)", page)
+        self.assertIn("await buildCurrent(false)", page)
+        self.assertIn("async function readBoardStatus()", page)
+        self.assertIn("async function verifySlot(slot)", page)
+        self.assertIn("async function removeSlot(slot)", page)
+        self.assertIn("function startLocalProgress(label, detail)", page)
+        self.assertIn("function finishLocalProgress(success, detail)", page)
+        self.assertLess(page.index("buildCurrent()"), page.index("buildRacing()"))
+        self.assertLess(page.index("buildRacing()"), page.index("buildSelftest()"))
+        self.assertLess(page.index("buildSelftest()"), page.index("runCurrent()"))
+
+    def test_studio_exposes_generated_artifacts_for_download(self):
+        report = build_assembly("_start: b _start")
+        self.assertEqual(
+            set(report["artifacts"]),
+            {"LA32IMG", "BIN", "MIF", "COE", "Listing"},
+        )
+        routes = {route.path for route in create_app().routes}
+        self.assertIn("/api/artifacts/{name}", routes)
+
     def test_direct_assembly_build_emits_machine_code_and_fpga_formats(self):
         report = build_assembly("""
 .text

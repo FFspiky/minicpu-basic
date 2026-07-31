@@ -132,6 +132,20 @@
     }
     .artifact-bar .label { color: var(--muted); font-size: 12px; }
     #artifact { font-weight: 600; }
+    .artifact-downloads {
+      display: flex;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 4px 10px;
+      margin-top: 2px;
+    }
+    .artifact-downloads[hidden] { display: none; }
+    .artifact-downloads a {
+      color: var(--accent);
+      font-size: 12px;
+      text-decoration: none;
+    }
+    .artifact-downloads a:hover { text-decoration: underline; }
 
     .progress-panel {
       display: grid;
@@ -279,6 +293,18 @@
     .listing pre { height: 430px; }
 
     .storage-body { padding: 0 14px 14px; }
+    .board-status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+      background: #fbfcfd;
+      font-size: 12px;
+    }
+    .board-status[hidden] { display: none; }
+    .board-status strong { color: var(--text); font-weight: 600; }
     .storage-table { width: 100%; border-collapse: collapse; }
     .storage-table th, .storage-table td {
       height: 36px;
@@ -296,6 +322,8 @@
     .slot-state.valid::before { background: var(--success); }
     .empty { color: var(--quiet); }
     .mono { font-family: Consolas, "Cascadia Mono", monospace; }
+    .slot-actions { display: flex; gap: 6px; }
+    .slot-actions button { min-height: 26px; padding: 2px 8px; font-size: 12px; }
 
     .operation-log {
       min-height: 36px;
@@ -314,6 +342,7 @@
       .code-grid { grid-template-columns: 1fr; }
       .code-pane + .code-pane { border-left: 0; border-top: 1px solid var(--border); }
       .artifact-bar { width: 100%; margin-left: 0; text-align: left; }
+      .artifact-downloads { justify-content: flex-start; }
       .control-separator { display: none; }
       .section-header { align-items: flex-start; flex-direction: column; }
     }
@@ -346,9 +375,9 @@
 
       <div class="control-group">
         <button id="build-current" type="button" data-build onclick="buildCurrent()">构建当前 C</button>
-        <button id="run-current" type="button" class="primary" data-board onclick="runCurrent()">构建并运行 C</button>
         <button type="button" data-build onclick="buildRacing()">构建赛车</button>
         <button type="button" data-build onclick="buildSelftest()">构建流水线 EXP16</button>
+        <button id="run-current" type="button" class="primary" data-board onclick="runCurrent()">构建并运行 C</button>
       </div>
 
       <span class="control-separator"></span>
@@ -360,12 +389,14 @@
         </div>
         <button type="button" class="primary" data-board onclick="install()">安装当前镜像</button>
         <button type="button" data-board onclick="slots()">读取程序槽</button>
+        <button type="button" data-board onclick="readBoardStatus()">读取板端状态</button>
         <button type="button" class="danger" data-board onclick="formatStore()">初始化程序盘</button>
       </div>
 
       <div class="artifact-bar">
         <span class="label">当前构建产物</span>
         <span id="artifact">尚未构建</span>
+        <div id="artifact-downloads" class="artifact-downloads" aria-label="下载构建产物" hidden></div>
       </div>
     </section>
 
@@ -374,7 +405,7 @@
         <span id="progress-phase">等待操作</span>
         <span id="progress-meta">0% · 0.0 s</span>
       </div>
-      <div class="progress-track" role="progressbar" aria-label="板端操作进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div class="progress-track" role="progressbar" aria-label="操作进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <div id="progress-fill"></div>
       </div>
       <div class="progress-detail-row">
@@ -394,6 +425,8 @@
             <button type="button" class="active" role="tab" aria-selected="true" data-mode="c" onclick="switchMode('c')">C 语言</button>
             <button type="button" role="tab" aria-selected="false" data-mode="assembly" onclick="switchMode('assembly')">LA32R 汇编</button>
           </div>
+          <button id="open-assembly-file" type="button" onclick="$('assembly-file').click()">选择汇编文件</button>
+          <input id="assembly-file" type="file" accept=".S,.s,.asm,.txt,text/plain" hidden>
           <label class="auto-build" for="auto-build">
             <input id="auto-build" type="checkbox" checked>
             停止输入后自动构建
@@ -456,10 +489,11 @@ int main(void)
           <p>板端目录最多保存16个LA32IMG程序；读取目录需要连接开发板。</p>
         </div>
       </div>
+      <div id="board-status" class="board-status" aria-live="polite" hidden></div>
       <div class="storage-body">
         <table class="storage-table">
           <thead>
-            <tr><th>槽号</th><th>状态</th><th>程序名称</th><th>类型</th><th>大小</th><th>CRC-32</th></tr>
+            <tr><th>槽号</th><th>状态</th><th>程序名称</th><th>类型</th><th>大小</th><th>CRC-32</th><th>操作</th></tr>
           </thead>
           <tbody id="slots"></tbody>
         </table>
@@ -473,10 +507,12 @@ int main(void)
     let currentImage = null;
     let currentArtifact = null;
     let progressTimer = null;
+    let localProgressTimer = null;
     let editorMode = 'c';
     let autoBuildTimer = null;
     let buildInFlight = false;
     let buildPending = false;
+    let assemblyFileName = 'playground.S';
     const $ = id => document.getElementById(id);
     const disconnected = '无法连接本地服务。请重新运行 start_studio.ps1，并保持 PowerShell 窗口开启。';
     const assemblySample = `.text
@@ -515,6 +551,8 @@ done:
     }
 
     function showProgressPending(label) {
+      clearInterval(localProgressTimer);
+      localProgressTimer = null;
       const panel = $('progress-panel');
       panel.hidden = false;
       panel.className = 'progress-panel indeterminate';
@@ -524,6 +562,38 @@ done:
       $('progress-bytes').textContent = '';
       $('progress-fill').style.width = '35%';
       panel.querySelector('.progress-track').setAttribute('aria-valuenow', '0');
+    }
+
+    function startLocalProgress(label, detail) {
+      clearInterval(localProgressTimer);
+      const panel = $('progress-panel');
+      const startedAt = Date.now();
+      panel.hidden = false;
+      panel.className = 'progress-panel indeterminate';
+      $('progress-phase').textContent = label;
+      $('progress-detail').textContent = detail;
+      $('progress-meta').textContent = '处理中 · 0.0 s';
+      $('progress-bytes').textContent = '';
+      $('progress-fill').style.width = '35%';
+      panel.querySelector('.progress-track').setAttribute('aria-valuenow', '0');
+      localProgressTimer = setInterval(() => {
+        const elapsed = (Date.now() - startedAt) / 1000;
+        $('progress-meta').textContent = `处理中 · ${elapsed.toFixed(1)} s`;
+      }, 100);
+    }
+
+    function finishLocalProgress(success, detail) {
+      clearInterval(localProgressTimer);
+      localProgressTimer = null;
+      const panel = $('progress-panel');
+      panel.hidden = false;
+      panel.className = `progress-panel ${success ? 'complete' : 'error'}`;
+      $('progress-phase').textContent = success ? '构建完成' : '构建失败';
+      $('progress-detail').textContent = detail;
+      $('progress-meta').textContent = success ? '100%' : '失败';
+      $('progress-bytes').textContent = '';
+      $('progress-fill').style.width = '100%';
+      panel.querySelector('.progress-track').setAttribute('aria-valuenow', success ? '100' : '0');
     }
 
     function renderProgress(progress) {
@@ -616,7 +686,7 @@ done:
         <tr>
           <td class="slot-index">${slot.toString(16).toUpperCase().padStart(2, '0')}</td>
           <td><span class="slot-state">${message}</span></td>
-          <td class="name empty">—</td><td class="empty">—</td><td class="empty">—</td><td class="empty">—</td>
+          <td class="name empty">—</td><td class="empty">—</td><td class="empty">—</td><td class="empty">—</td><td class="empty">—</td>
         </tr>`).join('');
     }
 
@@ -635,25 +705,47 @@ done:
       }
     }
 
-    function setArtifact(name, size, image) {
+    function renderArtifactDownloads(artifacts = {}) {
+      const container = $('artifact-downloads');
+      const entries = Object.entries(artifacts);
+      container.hidden = entries.length === 0;
+      container.innerHTML = entries.map(([label, artifact]) => `
+        <a href="/api/artifacts/${encodeURIComponent(artifact.name)}"
+           download="${escapeHtml(artifact.name)}"
+           title="${formatBytes(artifact.size)}">${escapeHtml(label)}</a>
+      `).join('');
+    }
+
+    function setArtifact(name, size, image, artifacts = {}) {
       currentImage = image;
       currentArtifact = { name, size };
       $('artifact').textContent = `${name} · ${size.toLocaleString('zh-CN')} B`;
+      renderArtifactDownloads(artifacts);
     }
 
     function sourceText() {
       return $('source-editor').value;
     }
 
+    function assemblySourceTitle() {
+      return `${assemblyFileName}（可编辑）`;
+    }
+
+    function assemblyArtifactName() {
+      return assemblyFileName === 'playground.S'
+        ? 'Assembly Playground'
+        : `Assembly · ${assemblyFileName}`;
+    }
+
     function showBuild(result, name, sourceName, assemblyName, translated) {
-      setArtifact(name, result.image_size, result.image);
+      setArtifact(name, result.image_size, result.image, result.artifacts);
       $('source-title').textContent = sourceName;
       $('assembly-title').textContent = assemblyName;
       $('assembly').textContent = translated;
       $('listing').textContent = result.listing;
     }
 
-    function switchMode(mode) {
+    function switchMode(mode, schedule = true) {
       if (!['c', 'assembly'].includes(mode) || mode === editorMode) return;
       clearTimeout(autoBuildTimer);
       sourceDrafts[editorMode] = sourceText();
@@ -667,7 +759,7 @@ done:
       const assembly = mode === 'assembly';
       $('build-current').textContent = assembly ? '汇编为机器指令' : '构建当前 C';
       $('run-current').textContent = assembly ? '汇编并运行' : '构建并运行 C';
-      $('source-title').textContent = assembly ? 'playground.S（可编辑）' : 'playground.c（可编辑）';
+      $('source-title').textContent = assembly ? assemblySourceTitle() : 'playground.c（可编辑）';
       $('assembly-title').textContent = assembly ? '机器指令（地址 : 十六进制）' : 'GCC 生成的 LA32R 汇编';
       $('workspace-help').textContent = assembly
         ? '汇编源码直接送入自研两遍汇编器；支持 EXP16 n1–n58 使用的指令、伪指令、标签和数据指令。'
@@ -680,7 +772,47 @@ done:
       currentImage = null;
       currentArtifact = null;
       $('artifact').textContent = '当前模式尚未构建';
-      scheduleAutoBuild();
+      renderArtifactDownloads();
+      if (schedule) scheduleAutoBuild();
+    }
+
+    async function loadAssemblyFile(event) {
+      const input = event.currentTarget;
+      const file = input.files && input.files[0];
+      if (!file) return;
+
+      clearTimeout(autoBuildTimer);
+      try {
+        if (!/\.(s|asm|txt)$/i.test(file.name)) {
+          throw new Error('请选择 .S、.s、.asm 或 .txt 汇编源文件。');
+        }
+        if (file.size > 64 * 1024) {
+          throw new Error('汇编文件超过 Studio 的 64 KiB 限制。');
+        }
+
+        let source = await file.text();
+        if (source.charCodeAt(0) === 0xfeff) source = source.slice(1);
+        if (!source.trim()) throw new Error('汇编文件为空。');
+
+        if (editorMode !== 'assembly') switchMode('assembly', false);
+        clearTimeout(autoBuildTimer);
+        assemblyFileName = file.name;
+        $('source-editor').value = source;
+        sourceDrafts.assembly = source;
+        $('source-title').textContent = assemblySourceTitle();
+        $('assembly').textContent = '文件已载入，正在生成机器指令。';
+        $('listing').textContent = '文件已载入，正在生成机器码清单。';
+        currentImage = null;
+        currentArtifact = null;
+        $('artifact').textContent = `${file.name} · 等待汇编`;
+        renderArtifactDownloads();
+        state(`已载入 ${file.name}（${formatBytes(file.size)}），正在汇编`, 'ok');
+        await buildCurrent(false);
+      } catch (error) {
+        state(error.message, 'error');
+      } finally {
+        input.value = '';
+      }
     }
 
     function scheduleAutoBuild() {
@@ -704,19 +836,26 @@ done:
         ? '自研汇编器 → 机器指令 → LA32IMG'
         : 'GCC -S → 自研汇编 → LA32IMG';
       buildInFlight = true;
+      startLocalProgress(automatic ? '自动构建' : '构建当前源码', pipeline);
       setBusy(true, `${automatic ? '自动构建' : '正在构建'}：${pipeline}`);
       try {
         const result = await api(path, { source });
         if (assemblyMode) {
-          showBuild(result, 'Assembly Playground', 'playground.S（可编辑）', '机器指令（地址 : 十六进制）', result.machine_code);
+          showBuild(result, assemblyArtifactName(), assemblySourceTitle(), '机器指令（地址 : 十六进制）', result.machine_code);
         } else {
           showBuild(result, 'C Playground', 'playground.c（可编辑）', 'playground.gcc.s', result.assembly);
         }
         $('program-output').textContent = '构建完成；点击“构建并运行”可查看开发板真实输出。';
         const detail = assemblyMode ? `，${result.instruction_words} 个32位字` : '';
-        state(`${assemblyMode ? '汇编源码构建完成' : '通用 C 构建完成'}${detail}，镜像共 ${result.image_size.toLocaleString('zh-CN')} 字节`, 'ok');
+        const buildSubject = assemblyMode && assemblyFileName !== 'playground.S'
+          ? `${assemblyFileName} 汇编完成`
+          : assemblyMode ? '汇编源码构建完成' : '通用 C 构建完成';
+        const message = `${buildSubject}${detail}，镜像共 ${result.image_size.toLocaleString('zh-CN')} 字节`;
+        state(message, 'ok');
+        finishLocalProgress(true, message);
       } catch (error) {
         state(error.message, 'error');
+        finishLocalProgress(false, error.message);
       } finally {
         buildInFlight = false;
         setBusy(false);
@@ -731,14 +870,19 @@ done:
       try {
         const port = selectedPort();
         const assemblyMode = editorMode === 'assembly';
+        startLocalProgress(
+          '构建并运行',
+          assemblyMode ? '自研汇编器 → LA32IMG' : 'GCC -S → 自研汇编 → LA32IMG'
+        );
         setBusy(true, assemblyMode ? '正在将汇编源码转换为机器指令与 LA32IMG' : '正在构建当前 C：GCC -S → 自研汇编 → LA32IMG');
         const build = await api(assemblyMode ? '/api/build/assembly' : '/api/build/generic', { source: sourceText() });
         if (assemblyMode) {
-          showBuild(build, 'Assembly Playground', 'playground.S（可编辑）', '机器指令（地址 : 十六进制）', build.machine_code);
+          showBuild(build, assemblyArtifactName(), assemblySourceTitle(), '机器指令（地址 : 十六进制）', build.machine_code);
         } else {
           showBuild(build, 'C Playground', 'playground.c（可编辑）', 'playground.gcc.s', build.assembly);
         }
         state('构建完成，正在连接板端菜单；如果板子仍在运行应用，请短按一次实体复位', '');
+        finishLocalProgress(true, '本地构建完成，正在连接板端');
         const run = await boardApi('/api/run/image', { image: build.image, port }, '正在连接 Boot Monitor');
         $('program-output').textContent = run.output || '(程序没有输出)';
         state(run.completed ? '程序已执行完成，输出已从开发板返回' : '程序已运行，但输出采集超时', run.completed ? 'ok' : 'error');
@@ -750,38 +894,48 @@ done:
     }
 
     async function buildRacing() {
+      if (editorMode !== 'c') switchMode('c', false);
+      startLocalProgress('构建赛车', 'GCC -S → 自研汇编 → LA32IMG');
       setBusy(true, '正在构建赛车：GCC -S → 自研汇编 → LA32IMG');
       try {
         const result = await api('/api/build/racing', {});
-        setArtifact('Racing Game', result.image_size, result.image);
+        setArtifact('Racing Game', result.image_size, result.image, result.artifacts);
         $('source-title').textContent = 'racing_game.c';
         $('assembly-title').textContent = 'racing_game.gcc.s';
         $('source-editor').value = result.c_source;
         sourceDrafts[editorMode] = result.c_source;
         $('assembly').textContent = result.assembly;
         $('listing').textContent = result.listing;
-        state(`赛车构建完成，共 ${result.image_size.toLocaleString('zh-CN')} 字节`, 'ok');
+        const message = `赛车构建完成，共 ${result.image_size.toLocaleString('zh-CN')} 字节`;
+        state(message, 'ok');
+        finishLocalProgress(true, message);
       } catch (error) {
         state(error.message, 'error');
+        finishLocalProgress(false, error.message);
       } finally {
         setBusy(false);
       }
     }
 
     async function buildSelftest() {
+      if (editorMode !== 'assembly') switchMode('assembly', false);
+      startLocalProgress('构建流水线 EXP16', '预处理 60 个汇编文件 → 自研汇编 → LA32IMG');
       setBusy(true, '正在构建完整流水线 EXP16，首次构建需要较长时间');
       try {
         const result = await api('/api/build/selftest', {});
-        setArtifact('Pipeline EXP16', result.image_size, result.image);
+        setArtifact('Pipeline EXP16', result.image_size, result.image, result.artifacts);
         $('source-title').textContent = 'EXP16 原始源码与构建摘要';
         $('assembly-title').textContent = 'GCC 预处理输出 / start.S';
         $('source-editor').value = result.c_source;
         sourceDrafts[editorMode] = result.c_source;
         $('assembly').textContent = result.assembly;
         $('listing').textContent = result.listing;
-        state(`EXP16 构建完成：n1–n58，共 ${result.image_size.toLocaleString('zh-CN')} 字节；尚未在板上运行`, 'ok');
+        const message = `EXP16 构建完成：n1–n58，共 ${result.image_size.toLocaleString('zh-CN')} 字节；尚未在板上运行`;
+        state(message, 'ok');
+        finishLocalProgress(true, message);
       } catch (error) {
         state(error.message, 'error');
+        finishLocalProgress(false, error.message);
       } finally {
         setBusy(false);
       }
@@ -801,7 +955,7 @@ done:
 
     async function install() {
       try {
-        if (!currentImage) throw new Error('请先构建赛车或流水线 EXP16。');
+        if (!currentImage) throw new Error('请先构建一个程序镜像。');
         const port = selectedPort();
         const slot = selectedSlot();
         setBusy(true, `正在连接板端菜单并将 ${currentArtifact.name} 安装到槽 ${slot}；仅在板子仍运行应用时按一次复位`);
@@ -828,7 +982,71 @@ done:
           <td class="${row.valid ? '' : 'empty'}">${row.valid ? imageType(row.type) : '—'}</td>
           <td class="mono ${row.valid ? '' : 'empty'}">${row.valid ? row.size.toLocaleString('zh-CN') + ' B' : '—'}</td>
           <td class="mono ${row.valid ? '' : 'empty'}">${row.valid ? row.crc.toUpperCase() : '—'}</td>
+          <td>${row.valid ? `
+            <div class="slot-actions">
+              <button type="button" onclick="verifySlot(${row.slot})">校验</button>
+              <button type="button" class="danger" onclick="removeSlot(${row.slot})">删除</button>
+            </div>` : '<span class="empty">—</span>'}</td>
         </tr>`).join('');
+    }
+
+    function renderBoardStatus(result) {
+      const status = $('board-status');
+      const values = [
+        ['界面', result.screen],
+        ['状态', result.status_text],
+        ['活动槽', result.active_slot],
+        ['选中槽', result.selected_slot],
+        ['有效槽掩码', result.valid_mask],
+        ['动态结束 PC', result.dynamic_end_pc],
+      ];
+      status.innerHTML = values.map(([label, value]) =>
+        `<span>${escapeHtml(label)}：<strong>${escapeHtml(value)}</strong></span>`
+      ).join('');
+      status.hidden = false;
+    }
+
+    async function readBoardStatus() {
+      try {
+        const port = selectedPort();
+        setBusy(true, '正在读取板端运行状态');
+        const result = await api('/api/status', { port });
+        renderBoardStatus(result);
+        state(`板端状态已更新：${result.screen} / ${result.status_text}`, 'ok');
+      } catch (error) {
+        state(error.message, 'error');
+        if (localProgressTimer) finishLocalProgress(false, error.message);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function verifySlot(slot) {
+      try {
+        const port = selectedPort();
+        setBusy(true, `正在校验槽 ${slot}`);
+        await api('/api/verify', { port, slot });
+        state(`槽 ${slot} 校验通过`, 'ok');
+      } catch (error) {
+        state(error.message, 'error');
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function removeSlot(slot) {
+      try {
+        const port = selectedPort();
+        if (!confirm(`删除槽 ${slot} 中的程序？此操作不可撤销。`)) return;
+        setBusy(true, `正在删除槽 ${slot}`);
+        const result = await api('/api/remove', { port, slot });
+        renderSlots(result.slots);
+        state(`槽 ${slot} 已删除`, 'ok');
+      } catch (error) {
+        state(error.message, 'error');
+      } finally {
+        setBusy(false);
+      }
     }
 
     async function slots() {
@@ -873,6 +1091,7 @@ done:
     sourceDrafts.c = sourceText();
     $('source-editor').addEventListener('input', scheduleAutoBuild);
     $('auto-build').addEventListener('change', scheduleAutoBuild);
+    $('assembly-file').addEventListener('change', loadAssemblyFile);
     renderEmptySlots();
     ports();
   </script>

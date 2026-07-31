@@ -29,11 +29,13 @@ Python 3.10+创建`.venv`并安装锁定依赖。无Python的电脑请下载GitH
 
 - 编辑和构建简单freestanding C；
 - 在“C语言 / LA32R汇编”双模式间切换，停止输入后自动构建；
+- 选择本地`.S`、`.s`、`.asm`或`.txt`汇编文件，自动载入汇编工作区并完成机器码与LA32IMG构建；
 - 直接编辑汇编并由自研汇编器生成地址—机器码清单、BIN、MIF、COE和LA32IMG；
+- 从页面直接下载当前构建生成的LA32IMG、BIN、MIF、COE、listing和构建报告；
 - 同时查看C源码、GCC生成的LA32R汇编和自研机器码listing；
 - 经UART临时下载到RAM、运行并显示开发板真实输出；
 - 构建赛车和完整流水线EXP16；
-- 安装、读取、校验和初始化NAND程序槽。
+- 安装、读取、校验、删除和初始化NAND程序槽，并读取板端菜单与程序运行状态。
 
 通用C运行库位于`sw/generic/runtime.c`，提供`putchar`、`puts`、`print_int`和简化`printf`。推荐示例：
 

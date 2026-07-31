@@ -13,6 +13,22 @@ Vivado生成目录或`.bit`文件到Git历史。
 F12可返回菜单；赛车镜像经过完全断电、重新下载bitstream后仍保留在NAND，目录
 元数据和整镜像CRC校验均通过。详细上传边界和发布步骤见`GITHUB_RELEASE.md`。
 
+## LA32 Studio（2026-07-31）
+
+在仓库根目录双击`LA32-Studio.cmd`即可启动网页工具。当前版本支持：
+
+- C语言与LA32R汇编双模式编辑、停止输入后自动构建；
+- 选择本地`.S`、`.s`、`.asm`或`.txt`文件，直接完成自研汇编器构建，不要求手动复制源码；
+- 下载当前构建生成的LA32IMG、BIN、MIF、COE、机器码清单和构建报告；
+- 构建并运行C程序、构建赛车和流水线EXP16预设；
+- 通过UART临时运行镜像；
+- 查看开发板状态，并安装、列出、校验、删除或格式化NAND程序槽。
+
+汇编文件构建不需要WSL；C语言和赛车构建使用LA32R GCC，需要Windows已启用WSL。
+单文件汇编应当能够独立完成汇编；依赖多个源码文件或工程布局时，请使用仓库内的
+EXP16等预设构建入口。开发板操作需要USB转RS-232适配器和已经下载稳定bitstream的
+开发板。详细用法见`final_cpu/tools/la32asm/README.md`。
+
 - `final_cpu/`：EXP23 流水线 CPU + BRAM SoC + LCD 工程入口，后续外设和小游戏扩展从这里继续。
 - `cdp_ede_local-master/`：单周期 CPU 环境
 - `cdp_ede_pipeline/`：五级流水线 CPU 环境
